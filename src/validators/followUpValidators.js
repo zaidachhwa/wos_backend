@@ -1,0 +1,19 @@
+import { FOLLOWUP_TYPES } from "../constants/enums.constants.js";
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export const validateFollowUpUpsert = (req, res, next) => {
+  const { date, type, data } = req.body;
+  if (!date || !DATE_RE.test(date)) {
+    return res.status(400).json({ success: false, message: "date must be in YYYY-MM-DD format" });
+  }
+  if (!FOLLOWUP_TYPES.includes(type)) {
+    return res
+      .status(400)
+      .json({ success: false, message: `type must be one of ${FOLLOWUP_TYPES.join(", ")}` });
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return res.status(400).json({ success: false, message: "data is required" });
+  }
+  next();
+};

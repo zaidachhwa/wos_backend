@@ -1,0 +1,26 @@
+{
+  "name": "wos-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --env-file=.env src/server.js",
+    "start": "node --env-file=.env src/server.js",
+    "seed": "node --env-file=.env scripts/seed.js",
+    "smoke": "node --env-file=.env scripts/smoke-auth.js && node --env-file=.env scripts/smoke-users.js && node --env-file=.env scripts/smoke-org.js && node --env-file=.env scripts/smoke-projects.js && node --env-file=.env scripts/smoke-followups.js && node --env-file=.env scripts/smoke-timeblocks.js && node --env-file=.env scripts/smoke-notifications.js && node --env-file=.env scripts/smoke-dashboard.js && node --env-file=.env scripts/smoke-ai.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "axios": "^1.18.1",
+    "bcrypt": "^6.0.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.7.4",
+    "socket.io": "^4.8.3"
+  }
+}
