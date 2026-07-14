@@ -100,3 +100,26 @@ export const markAllNotificationsRead = async (req, res) => {
     return res.status(500).json({ success: false, message: "Something went wrong" });
   }
 };
+
+export const deleteNotification = async (req, res) => {
+  try {
+    const notification = await Notification.findOneAndDelete({ _id: req.params.id, user: req.user._id });
+    if (!notification) {
+      return res.status(404).json({ success: false, message: "Notification not found" });
+    }
+    return res.json({ success: true, message: "Notification deleted", data: null });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: "Something went wrong" });
+  }
+};
+
+export const clearNotifications = async (req, res) => {
+  try {
+    await Notification.deleteMany({ user: req.user._id });
+    return res.json({ success: true, message: "Notifications cleared", data: null });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: "Something went wrong" });
+  }
+};

@@ -12,6 +12,7 @@ const FULL_FIELDS = [
   "description",
   "module",
   "assignee",
+  "collaborators",
   "priority",
   "status",
   "estimatedHours",
@@ -30,6 +31,7 @@ export const createTask = async (req, res) => {
       title,
       description,
       assignee,
+      collaborators,
       priority,
       status,
       estimatedHours,
@@ -57,6 +59,7 @@ export const createTask = async (req, res) => {
       title,
       description,
       assignee: assignee || null,
+      collaborators: collaborators || [],
       priority,
       status,
       estimatedHours,
@@ -117,6 +120,7 @@ export const listTasks = async (req, res) => {
 
     const tasks = await Task.find(filter)
       .populate("assignee", "name role designation")
+      .populate("collaborators", "name role designation")
       .sort("-createdAt")
       .lean();
     return res.json({ success: true, message: "Tasks fetched", data: { tasks } });
@@ -130,6 +134,7 @@ export const getTask = async (req, res) => {
   try {
     const task = await Task.findById(req.params.id)
       .populate("assignee", "name role designation")
+      .populate("collaborators", "name role designation")
       .populate("comments.user", "name role designation");
     if (!task) {
       return res.status(404).json({ success: false, message: "Task not found" });

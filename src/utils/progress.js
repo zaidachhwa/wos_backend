@@ -28,6 +28,7 @@ export const modulesWithProgress = async (projectId) => {
   const [modules, tasks] = await Promise.all([
     ProjectModule.find({ project: projectId })
       .populate("lead", "name role designation")
+      .populate("collaborators", "name role designation")
       .sort("name")
       .lean(),
     Task.find({ project: projectId }).select("module status").lean(),

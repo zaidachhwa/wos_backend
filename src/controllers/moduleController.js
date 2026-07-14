@@ -30,13 +30,14 @@ export const createModule = async (req, res) => {
     if (!(await canViewProject(req.user, project))) {
       return res.status(403).json({ success: false, message: "Forbidden" });
     }
-    const { name, description, deadline, lead, status } = req.body;
+    const { name, description, deadline, lead, collaborators, status } = req.body;
     const projectModule = await ProjectModule.create({
       project: project._id,
       name,
       description,
       deadline: deadline || null,
       lead: lead || null,
+      collaborators: collaborators || [],
       status,
     });
     recordActivity({
@@ -70,7 +71,7 @@ export const updateModule = async (req, res) => {
     if (!projectModule) {
       return res.status(404).json({ success: false, message: "Module not found" });
     }
-    const allowed = ["name", "description", "deadline", "lead", "status"];
+    const allowed = ["name", "description", "deadline", "lead", "collaborators", "status"];
     for (const key of allowed) {
       if (key in req.body) projectModule[key] = req.body[key];
     }
