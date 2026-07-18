@@ -130,13 +130,20 @@ const memberDashboard = async (user) => {
   const { start, end } = dayBounds(now);
   const today = localDay(now);
 
-  const [todayTasks, upcomingDeadlines, todaySchedule, followUps, projectDocs, recentActivity] =
+  const [todayTasks, yesterdayTasks, upcomingDeadlines, todaySchedule, followUps, projectDocs, recentActivity] =
     await Promise.all([
       Task.find({
         assignees: user._id,
         status: { $ne: "completed" },
-        $or: [{ deadline: { $gte: start, $lte: end } }, { status: "in_progress" }],
+        assignedDate: { $gte: start, $lte: end },
       }).populate("assignees", "name role designation"),
+      Task.find({
+        assignees: user._id,
+        status: { $ne: "completed" },
+        assignedDate: { $lt: start },
+      })
+        .populate("assignees", "name role designation")
+        .sort("assignedDate"),
       Task.find({ assignees: user._id, deadline: { $gte: now, $lte: in7d }, status: { $ne: "completed" } }).sort(
         "deadline"
       ),
@@ -161,6 +168,7 @@ const memberDashboard = async (user) => {
 
   return {
     todayTasks,
+    yesterdayTasks,
     upcomingDeadlines,
     todaySchedule,
     followUpStatus: { morning: statusFor("morning"), evening: statusFor("evening") },

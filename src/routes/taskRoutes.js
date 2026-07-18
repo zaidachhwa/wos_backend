@@ -6,6 +6,9 @@ import {
   getTask,
   updateTask,
   addComment,
+  updateComment,
+  deleteComment,
+  bulkUpdateTasks,
   deleteTask,
 } from "../controllers/taskController.js";
 import { authenticate, authorize } from "../middleware/auth.js";
@@ -16,11 +19,15 @@ router.use(authenticate);
 
 router.get("/", listTasks);
 router.post("/", authorize("admin", "manager", "sublead"), validateTaskCreate, createTask);
+// Must come before "/:id" — otherwise Express matches "bulk" as the :id param.
+router.patch("/bulk", authorize("admin", "manager", "sublead"), bulkUpdateTasks);
 router.get("/:id", getTask);
 // role check is "assignee: status/actualHours/subtasks only, sublead+: everything"
 // — needs the loaded task/project, so it's enforced inside the controller.
 router.patch("/:id", updateTask);
 router.post("/:id/comments", validateComment, addComment);
+router.patch("/:id/comments/:commentId", validateComment, updateComment);
+router.delete("/:id/comments/:commentId", deleteComment);
 router.delete("/:id", authorize("admin"), deleteTask);
 
 export default router;

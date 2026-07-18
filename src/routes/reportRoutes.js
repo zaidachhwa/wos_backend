@@ -4,9 +4,9 @@ import { teamReport, workLog } from "../controllers/reportController.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 
 const router = Router();
-router.use(authenticate, authorize("admin", "manager"));
+router.use(authenticate);
 
-router.get("/team", teamReport);
+router.get("/team", authorize("admin", "manager"), teamReport);
 router.get("/work-log", workLog);
 
 export default router;

@@ -4,6 +4,7 @@ import Task from "../models/Task.js";
 import { recordActivity, notify } from "../utils/record.js";
 import { broadcast } from "../utils/io.js";
 import { canViewProject, visibilityFilter, idOf } from "./projectController.js";
+import { paginationParams, paginationMeta } from "../utils/pagination.js";
 
 const SUBLEAD_PLUS = ["admin", "manager", "sublead"];
 
@@ -19,6 +20,8 @@ const FULL_FIELDS = [
   "deadline",
   "labels",
   "subtasks",
+  "blockedBy",
+  "recurrence",
 ];
 const ASSIGNEE_FIELDS = ["status", "actualHours", "subtasks"];
 
@@ -35,6 +38,8 @@ export const createTask = async (req, res) => {
       estimatedHours,
       deadline,
       labels,
+      blockedBy,
+      recurrence,
     } = req.body;
 
     const project = await Project.findById(projectId);
@@ -62,6 +67,8 @@ export const createTask = async (req, res) => {
       estimatedHours,
       deadline: deadline || null,
       labels: labels || [],
+      blockedBy: blockedBy || [],
+      recurrence: recurrence || null,
     });
 
     recordActivity({
@@ -115,11 +122,20 @@ export const listTasks = async (req, res) => {
       filter.project = { $in: viewableIds };
     }
 
-    const tasks = await Task.find(filter)
+    const pageParams = paginationParams(req.query);
+    const total = await Task.countDocuments(filter);
+    let query = Task.find(filter)
       .populate("assignees", "name role designation")
+      .populate("blockedBy", "title status")
       .sort("-createdAt")
       .lean();
-    return res.json({ success: true, message: "Tasks fetched", data: { tasks } });
+    if (pageParams) query = query.skip(pageParams.skip).limit(pageParams.limit);
+    const tasks = await query;
+    return res.json({
+      success: true,
+      message: "Tasks fetched",
+      data: { tasks, pagination: paginationMeta(total, pageParams) },
+    });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ success: false, message: "Something went wrong" });
@@ -130,6 +146,7 @@ export const getTask = async (req, res) => {
   try {
     const task = await Task.findById(req.params.id)
       .populate("assignees", "name role designation")
+      .populate("blockedBy", "title status")
       .populate("comments.user", "name role designation");
     if (!task) {
       return res.status(404).json({ success: false, message: "Task not found" });
@@ -213,6 +230,47 @@ export const updateTask = async (req, res) => {
       }
     }
 
+    if (task.status === "completed" && prevStatus !== "completed" && task.recurrence) {
+      const nextDeadline = task.deadline ? new Date(task.deadline) : new Date();
+      const { frequency, interval } = task.recurrence;
+      if (frequency === "daily") nextDeadline.setDate(nextDeadline.getDate() + interval);
+      else if (frequency === "weekly") nextDeadline.setDate(nextDeadline.getDate() + interval * 7);
+      else if (frequency === "monthly") nextDeadline.setMonth(nextDeadline.getMonth() + interval);
+
+      const nextTask = await Task.create({
+        project: task.project,
+        module: task.module,
+        title: task.title,
+        description: task.description,
+        assignees: task.assignees,
+        priority: task.priority,
+        estimatedHours: task.estimatedHours,
+        labels: task.labels,
+        recurrence: task.recurrence,
+        deadline: nextDeadline,
+        status: "backlog",
+        subtasks: [],
+        comments: [],
+        blockedBy: [],
+      });
+
+      recordActivity({
+        actor: req.user._id,
+        action: "created",
+        entityType: "task",
+        entityId: nextTask._id,
+        project: nextTask.project,
+      });
+      for (const userId of nextTask.assignees) {
+        notify({
+          user: userId,
+          type: "task_assigned",
+          title: `Assigned to task "${nextTask.title}"`,
+          link: `/tasks/${nextTask._id}`,
+        });
+      }
+    }
+
     broadcast("tasks_changed");
     return res.json({ success: true, message: "Task updated", data: { task } });
   } catch (error) {
@@ -253,6 +311,90 @@ export const addComment = async (req, res) => {
     }
 
     return res.status(201).json({ success: true, message: "Comment added", data: { task } });
+  } catch (error) {
+    return res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+export const updateComment = async (req, res) => {
+  try {
+    const task = await Task.findById(req.params.id);
+    if (!task) {
+      return res.status(404).json({ success: false, message: "Task not found" });
+    }
+    const comment = task.comments.id(req.params.commentId);
+    if (!comment) {
+      return res.status(404).json({ success: false, message: "Comment not found" });
+    }
+    const canManage = SUBLEAD_PLUS.includes(req.user.role);
+    if (idOf(comment.user) !== String(req.user._id) && !canManage) {
+      return res.status(403).json({ success: false, message: "Forbidden" });
+    }
+    if (!req.body.text || !String(req.body.text).trim()) {
+      return res.status(400).json({ success: false, message: "text is required" });
+    }
+
+    comment.text = req.body.text;
+    await task.save();
+
+    return res.json({ success: true, message: "Comment updated", data: { task } });
+  } catch (error) {
+    return res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+export const deleteComment = async (req, res) => {
+  try {
+    const task = await Task.findById(req.params.id);
+    if (!task) {
+      return res.status(404).json({ success: false, message: "Task not found" });
+    }
+    const comment = task.comments.id(req.params.commentId);
+    if (!comment) {
+      return res.status(404).json({ success: false, message: "Comment not found" });
+    }
+    if (idOf(comment.user) !== String(req.user._id) && req.user.role !== "admin") {
+      return res.status(403).json({ success: false, message: "Forbidden" });
+    }
+
+    comment.deleteOne();
+    await task.save();
+
+    return res.json({ success: true, message: "Comment deleted", data: { task } });
+  } catch (error) {
+    return res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+export const bulkUpdateTasks = async (req, res) => {
+  try {
+    const { ids, status, assignees } = req.body;
+    if (!Array.isArray(ids) || !ids.length) {
+      return res.status(400).json({ success: false, message: "ids is required" });
+    }
+
+    const tasks = await Task.find({ _id: { $in: ids } });
+    let updated = 0;
+    for (const task of tasks) {
+      const project = await Project.findById(task.project);
+      if (!project || !(await canViewProject(req.user, project))) continue;
+
+      if (status !== undefined) task.status = status;
+      if (assignees !== undefined) task.assignees = assignees;
+      await task.save();
+
+      recordActivity({
+        actor: req.user._id,
+        action: "updated",
+        entityType: "task",
+        entityId: task._id,
+        project: task.project,
+      });
+      updated += 1;
+    }
+
+    broadcast("tasks_changed");
+    return res.json({ success: true, message: `${updated} tasks updated`, data: { updated } });
   } catch (error) {
     return res.status(400).json({ success: false, message: error.message });
   }

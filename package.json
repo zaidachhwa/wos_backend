@@ -7,7 +7,7 @@
     "dev": "node --watch --env-file=.env src/server.js",
     "start": "node --env-file=.env src/server.js",
     "seed": "node --env-file=.env scripts/seed.js",
-    "smoke": "node --env-file=.env scripts/smoke-auth.js && node --env-file=.env scripts/smoke-users.js && node --env-file=.env scripts/smoke-org.js && node --env-file=.env scripts/smoke-projects.js && node --env-file=.env scripts/smoke-followups.js && node --env-file=.env scripts/smoke-timeblocks.js && node --env-file=.env scripts/smoke-notifications.js && node --env-file=.env scripts/smoke-dashboard.js && node --env-file=.env scripts/smoke-ai.js"
+    "smoke": "node --env-file=.env scripts/smoke-auth.js && node --env-file=.env scripts/smoke-users.js && node --env-file=.env scripts/smoke-org.js && node --env-file=.env scripts/smoke-projects.js && node --env-file=.env scripts/smoke-tasks-extra.js && node --env-file=.env scripts/smoke-followups.js && node --env-file=.env scripts/smoke-timeblocks.js && node --env-file=.env scripts/smoke-notifications.js && node --env-file=.env scripts/smoke-dashboard.js && node --env-file=.env scripts/smoke-ai.js"
   },
   "keywords": [],
   "author": "",

@@ -1,6 +1,7 @@
 import bcrypt from "bcrypt";
 
 import User from "../models/User.js";
+import { paginationParams, paginationMeta } from "../utils/pagination.js";
 
 // Would this update deactivate or demote the last remaining active admin,
 // locking everyone out of admin-only actions? Checked before isActive:false
@@ -47,8 +48,16 @@ export const createUser = async (req, res) => {
 
 export const listUsers = async (req, res) => {
   try {
-    const users = await User.find().populate("department team reportingManager", "name email");
-    return res.json({ success: true, message: "Users fetched", data: { users } });
+    const pageParams = paginationParams(req.query);
+    const total = await User.countDocuments();
+    let query = User.find().populate("department team reportingManager", "name email");
+    if (pageParams) query = query.skip(pageParams.skip).limit(pageParams.limit);
+    const users = await query;
+    return res.json({
+      success: true,
+      message: "Users fetched",
+      data: { users, pagination: paginationMeta(total, pageParams) },
+    });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ success: false, message: "Something went wrong" });

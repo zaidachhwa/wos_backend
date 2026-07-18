@@ -1,8 +1,15 @@
 import FollowUp from "../models/FollowUp.js";
 import User from "../models/User.js";
+import Task from "../models/Task.js";
 import { recordActivity, notify } from "../utils/record.js";
 
 const SUBLEAD_PLUS = ["admin", "manager", "sublead"];
+
+// ponytail: plain Date arithmetic, no date library in this project
+const dayBoundsFor = (dateStr) => ({
+  start: new Date(`${dateStr}T00:00:00`),
+  end: new Date(`${dateStr}T23:59:59.999`),
+});
 
 export const upsertFollowUp = async (req, res) => {
   try {
@@ -131,6 +138,40 @@ export const reviewFollowUp = async (req, res) => {
     });
 
     return res.json({ success: true, message: "Follow-up reviewed", data: { followUp } });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: "Something went wrong" });
+  }
+};
+
+export const getFollowUpSuggestion = async (req, res) => {
+  try {
+    const { date } = req.query;
+    if (!date) {
+      return res.status(400).json({ success: false, message: "date is required" });
+    }
+
+    const { start } = dayBoundsFor(date);
+    const previousDayStart = new Date(start);
+    previousDayStart.setDate(previousDayStart.getDate() - 1);
+    const previousDayEnd = new Date(previousDayStart);
+    previousDayEnd.setHours(23, 59, 59, 999);
+
+    const tasks = await Task.find({
+      assignees: req.user._id,
+      status: "completed",
+      updatedAt: { $gte: previousDayStart, $lte: previousDayEnd },
+    }).select("title");
+
+    const yesterdayCompleted = tasks.length
+      ? `Completed: ${tasks.map((t) => t.title).join(", ")}`
+      : "";
+
+    return res.json({
+      success: true,
+      message: "Suggestion fetched",
+      data: { yesterdayCompleted },
+    });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ success: false, message: "Something went wrong" });

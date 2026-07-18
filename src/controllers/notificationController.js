@@ -1,6 +1,7 @@
 import Notification from "../models/Notification.js";
 import FollowUp from "../models/FollowUp.js";
 import Task from "../models/Task.js";
+import { paginationParams, paginationMeta } from "../utils/pagination.js";
 
 // Server-local (process timezone) YYYY-MM-DD — matches the spec's "server-local"
 // wording; there's no per-user timezone concept in this app.
@@ -61,14 +62,21 @@ const injectReminders = async (user) => {
 export const listNotifications = async (req, res) => {
   try {
     await injectReminders(req.user);
-    const [notifications, unreadCount] = await Promise.all([
-      Notification.find({ user: req.user._id }).sort("-createdAt").limit(50),
+    const pageParams = paginationParams(req.query);
+    let query = Notification.find({ user: req.user._id }).sort("-createdAt");
+    query = pageParams ? query.skip(pageParams.skip).limit(pageParams.limit) : query.limit(50);
+    const [notifications, unreadCount, total] = await Promise.all([
+      query,
       Notification.countDocuments({ user: req.user._id, read: false }),
+      Notification.countDocuments({ user: req.user._id }),
     ]);
+    // Legacy (no params) mode still caps at 50 — report that as the
+    // effective limit rather than falsely claiming "everything".
+    const metaParams = pageParams || { page: 1, limit: 50 };
     return res.json({
       success: true,
       message: "Notifications fetched",
-      data: { notifications, unreadCount },
+      data: { notifications, unreadCount, pagination: paginationMeta(total, metaParams) },
     });
   } catch (error) {
     console.error(error);

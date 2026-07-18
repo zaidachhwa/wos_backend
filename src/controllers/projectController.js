@@ -3,6 +3,7 @@ import ProjectModule from "../models/ProjectModule.js";
 import Task from "../models/Task.js";
 import { recordActivity, notify } from "../utils/record.js";
 import { computeProjectProgress, modulesWithProgress } from "../utils/progress.js";
+import { paginationParams, paginationMeta } from "../utils/pagination.js";
 
 // project.manager/members may be a raw ObjectId or a populated User doc
 // (getProject populates them for the response) — always compare by _id.
@@ -75,14 +76,19 @@ export const createProject = async (req, res) => {
 export const listProjects = async (req, res) => {
   try {
     const filter = await visibilityFilter(req.user);
-    const projects = await Project.find(filter)
-      .populate("manager", "name role designation")
-      .sort("-createdAt")
-      .lean();
+    const pageParams = paginationParams(req.query);
+    const total = await Project.countDocuments(filter);
+    let query = Project.find(filter).populate("manager", "name role designation").sort("-createdAt").lean();
+    if (pageParams) query = query.skip(pageParams.skip).limit(pageParams.limit);
+    const projects = await query;
     const withProgress = await Promise.all(
       projects.map(async (p) => ({ ...p, progress: await computeProjectProgress(p._id) }))
     );
-    return res.json({ success: true, message: "Projects fetched", data: { projects: withProgress } });
+    return res.json({
+      success: true,
+      message: "Projects fetched",
+      data: { projects: withProgress, pagination: paginationMeta(total, pageParams) },
+    });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ success: false, message: "Something went wrong" });

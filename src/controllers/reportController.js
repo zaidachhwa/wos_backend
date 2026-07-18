@@ -151,14 +151,23 @@ export const workLog = async (req, res) => {
       return res.status(400).json({ success: false, message: "date must be a valid YYYY-MM-DD" });
     }
 
-    const reportFilter =
-      req.user.role === "admin"
-        ? { role: { $ne: "admin" }, isActive: true }
-        : { reportingManager: req.user._id, isActive: true };
-    const reports = await User.find(reportFilter).select("name");
-    const ids = reports.map((r) => r._id);
+    // sublead/member always get personal scope, regardless of what they pass.
+    const canScopeTeam = ["admin", "manager"].includes(req.user.role);
+    const scope = canScopeTeam && req.query.scope === "personal" ? "personal" : canScopeTeam ? "team" : "personal";
 
-    const [tasks, modules, evenings] = await Promise.all([
+    let ids;
+    if (scope === "personal") {
+      ids = [req.user._id];
+    } else {
+      const reportFilter =
+        req.user.role === "admin"
+          ? { role: { $ne: "admin" }, isActive: true }
+          : { reportingManager: req.user._id, isActive: true };
+      const reports = await User.find(reportFilter).select("name");
+      ids = reports.map((r) => r._id);
+    }
+
+    const [tasks, modules, upcomingTasks, upcomingModules] = await Promise.all([
       Task.find({
         assignees: { $in: ids },
         status: "completed",
@@ -169,12 +178,15 @@ export const workLog = async (req, res) => {
         status: "completed",
         updatedAt: { $gte: dayStart, $lte: dayEnd },
       }).populate("assignees", "name"),
-      FollowUp.find({
-        user: { $in: ids },
-        date: day,
-        type: "evening",
-        status: { $in: ["submitted", "reviewed"] },
-      }).populate("user", "name"),
+      Task.find({
+        assignees: { $in: ids },
+        status: { $ne: "completed" },
+        $or: [{ deadline: { $gte: dayEnd } }, { deadline: null }],
+      }).populate("assignees", "name"),
+      ProjectModule.find({
+        assignees: { $in: ids },
+        status: { $nin: ["completed", "cancelled"] },
+      }).populate("assignees", "name"),
     ]);
 
     const bullets = (items, empty) => (items.length ? items.map((i) => `- ${i}`).join("\n") : `- ${empty}`);
@@ -188,10 +200,11 @@ export const workLog = async (req, res) => {
       "None"
     );
     const todoLines = bullets(
-      evenings
-        .filter((f) => f.evening?.tomorrowPlan?.trim())
-        .map((f) => `${f.user?.name || "Someone"}: ${f.evening.tomorrowPlan.trim()}`),
-      "No tomorrow plans submitted yet"
+      [
+        ...upcomingTasks.map((t) => `${t.assignees.map((a) => a.name).join(", ") || "Unassigned"}: ${t.title}`),
+        ...upcomingModules.map((m) => `${m.assignees.map((a) => a.name).join(", ") || "Unassigned"}: ${m.name}`),
+      ],
+      "Nothing upcoming"
     );
 
     const text = [

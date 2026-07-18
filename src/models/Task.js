@@ -19,6 +19,11 @@ const commentSchema = new mongoose.Schema(
   { _id: true }
 );
 
+const recurrenceSchema = new mongoose.Schema(
+  { frequency: { type: String, enum: ["daily", "weekly", "monthly"], required: true }, interval: { type: Number, default: 1, min: 1 } },
+  { _id: false }
+);
+
 const taskSchema = new mongoose.Schema(
   {
     project: { type: mongoose.Schema.Types.ObjectId, ref: "Project", required: true },
@@ -34,6 +39,13 @@ const taskSchema = new mongoose.Schema(
     labels: [{ type: String }],
     subtasks: [subtaskSchema],
     comments: [commentSchema],
+    // Set once at creation — the day this task entered someone's "Today". Not
+    // touched by later edits/reassignment; drives the Today/Yesterday split.
+    assignedDate: { type: Date, default: Date.now },
+    // Display-only — nothing enforces these being done first (see design decision).
+    blockedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: "Task" }],
+    // Present + non-null means "recurring"; null means one-off (default).
+    recurrence: { type: recurrenceSchema, default: null },
   },
   { timestamps: true }
 );
