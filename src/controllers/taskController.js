@@ -11,8 +11,7 @@ const FULL_FIELDS = [
   "title",
   "description",
   "module",
-  "assignee",
-  "collaborators",
+  "assignees",
   "priority",
   "status",
   "estimatedHours",
@@ -30,8 +29,7 @@ export const createTask = async (req, res) => {
       module: moduleId,
       title,
       description,
-      assignee,
-      collaborators,
+      assignees,
       priority,
       status,
       estimatedHours,
@@ -58,8 +56,7 @@ export const createTask = async (req, res) => {
       module: moduleId || null,
       title,
       description,
-      assignee: assignee || null,
-      collaborators: collaborators || [],
+      assignees: assignees || [],
       priority,
       status,
       estimatedHours,
@@ -74,9 +71,9 @@ export const createTask = async (req, res) => {
       entityId: task._id,
       project: project._id,
     });
-    if (task.assignee) {
+    for (const userId of task.assignees) {
       notify({
-        user: task.assignee,
+        user: userId,
         type: "task_assigned",
         title: `Assigned to task "${task.title}"`,
         link: `/tasks/${task._id}`,
@@ -97,7 +94,7 @@ export const listTasks = async (req, res) => {
     if (module) filter.module = module;
     if (status) filter.status = status;
     if (priority) filter.priority = priority;
-    if (assignee) filter.assignee = assignee === "me" ? req.user._id : assignee;
+    if (assignee) filter.assignees = assignee === "me" ? req.user._id : assignee;
     if (search) {
       const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       filter.title = { $regex: escaped, $options: "i" };
@@ -119,8 +116,7 @@ export const listTasks = async (req, res) => {
     }
 
     const tasks = await Task.find(filter)
-      .populate("assignee", "name role designation")
-      .populate("collaborators", "name role designation")
+      .populate("assignees", "name role designation")
       .sort("-createdAt")
       .lean();
     return res.json({ success: true, message: "Tasks fetched", data: { tasks } });
@@ -133,8 +129,7 @@ export const listTasks = async (req, res) => {
 export const getTask = async (req, res) => {
   try {
     const task = await Task.findById(req.params.id)
-      .populate("assignee", "name role designation")
-      .populate("collaborators", "name role designation")
+      .populate("assignees", "name role designation")
       .populate("comments.user", "name role designation");
     if (!task) {
       return res.status(404).json({ success: false, message: "Task not found" });
@@ -162,7 +157,7 @@ export const updateTask = async (req, res) => {
     }
 
     const canManageFully = SUBLEAD_PLUS.includes(req.user.role) && (await canViewProject(req.user, project));
-    const isAssignee = task.assignee && idOf(task.assignee) === String(req.user._id);
+    const isAssignee = task.assignees.some((a) => idOf(a) === String(req.user._id));
     if (!canManageFully && !isAssignee) {
       return res.status(403).json({ success: false, message: "Forbidden" });
     }
@@ -182,7 +177,7 @@ export const updateTask = async (req, res) => {
       }
     }
 
-    const prevAssignee = task.assignee ? String(task.assignee) : null;
+    const prevAssignees = task.assignees.map((a) => String(a));
     const prevStatus = task.status;
 
     for (const key of allowedFields) {
@@ -198,22 +193,24 @@ export const updateTask = async (req, res) => {
       project: task.project,
     });
 
-    const newAssignee = task.assignee ? String(task.assignee) : null;
-    if (newAssignee && newAssignee !== prevAssignee) {
+    const newlyAssigned = task.assignees.map((a) => String(a)).filter((id) => !prevAssignees.includes(id));
+    for (const userId of newlyAssigned) {
       notify({
-        user: newAssignee,
+        user: userId,
         type: "task_assigned",
         title: `Assigned to task "${task.title}"`,
         link: `/tasks/${task._id}`,
       });
     }
-    if (task.status !== prevStatus && task.assignee) {
-      notify({
-        user: task.assignee,
-        type: "status_changed",
-        title: `Task "${task.title}" is now ${task.status}`,
-        link: `/tasks/${task._id}`,
-      });
+    if (task.status !== prevStatus) {
+      for (const userId of task.assignees) {
+        notify({
+          user: userId,
+          type: "status_changed",
+          title: `Task "${task.title}" is now ${task.status}`,
+          link: `/tasks/${task._id}`,
+        });
+      }
     }
 
     broadcast("tasks_changed");
@@ -244,13 +241,15 @@ export const addComment = async (req, res) => {
       entityId: task._id,
       project: task.project,
     });
-    if (task.assignee && idOf(task.assignee) !== String(req.user._id)) {
-      notify({
-        user: task.assignee,
-        type: "comment_added",
-        title: `New comment on "${task.title}"`,
-        link: `/tasks/${task._id}`,
-      });
+    for (const userId of task.assignees) {
+      if (idOf(userId) !== String(req.user._id)) {
+        notify({
+          user: userId,
+          type: "comment_added",
+          title: `New comment on "${task.title}"`,
+          link: `/tasks/${task._id}`,
+        });
+      }
     }
 
     return res.status(201).json({ success: true, message: "Comment added", data: { task } });

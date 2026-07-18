@@ -135,7 +135,7 @@ const run = async () => {
     {
       project: project.data.data.project._id,
       title: "Calendar smoke task",
-      assignee: member.userId,
+      assignees: [member.userId],
       deadline: iso(5),
     },
     manager.auth

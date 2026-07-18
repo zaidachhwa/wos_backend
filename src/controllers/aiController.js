@@ -31,10 +31,10 @@ const dayContext = async (user) => {
 
   const [todayTasks, upcoming, blocks, followUps] = await Promise.all([
     Task.find({
-      assignee: user._id,
+      assignees: user._id,
       $or: [{ deadline: { $gte: start, $lte: end } }, { status: "in_progress" }],
     }),
-    Task.find({ assignee: user._id, deadline: { $gte: now, $lte: in7d }, status: { $ne: "completed" } }).sort(
+    Task.find({ assignees: user._id, deadline: { $gte: now, $lte: in7d }, status: { $ne: "completed" } }).sort(
       "deadline"
     ),
     TimeBlock.find({ user: user._id, start: { $gte: start, $lte: end } }).sort("start"),
@@ -63,13 +63,13 @@ const workloadContext = async (user) => {
       : { reportingManager: user._id, isActive: true };
   const reports = await User.find(reportFilter).select("name role");
   const openTasks = await Task.find({
-    assignee: { $in: reports.map((r) => r._id) },
+    assignees: { $in: reports.map((r) => r._id) },
     status: { $ne: "completed" },
-  }).select("assignee estimatedHours actualHours status");
+  }).select("assignees estimatedHours actualHours status");
 
   return reports
     .map((r) => {
-      const mine = openTasks.filter((t) => String(t.assignee) === String(r._id));
+      const mine = openTasks.filter((t) => t.assignees.some((a) => String(a) === String(r._id)));
       const est = mine.reduce((s, t) => s + (t.estimatedHours || 0), 0);
       const blocked = mine.filter((t) => t.status === "blocked").length;
       return `- ${r.name} (${r.role}): ${mine.length} open tasks, ${est}h estimated, ${blocked} blocked`;
@@ -159,7 +159,7 @@ export const chat = async (req, res) => {
     const { message } = req.body;
     const [projects, ownTasks] = await Promise.all([
       Project.find(await visibilityFilter(req.user)).populate("manager", "name"),
-      Task.find({ assignee: req.user._id, status: { $ne: "completed" } }),
+      Task.find({ assignees: req.user._id, status: { $ne: "completed" } }),
     ]);
 
     const pieces = [
@@ -182,7 +182,7 @@ export const chat = async (req, res) => {
       const reportIds = reports.map((r) => r._id);
       const [followUps, blocked] = await Promise.all([
         FollowUp.find({ user: { $in: reportIds }, date: today }),
-        Task.find({ assignee: { $in: reportIds }, status: "blocked" }).populate("assignee", "name"),
+        Task.find({ assignees: { $in: reportIds }, status: "blocked" }).populate("assignees", "name"),
       ]);
       const submitted = new Set(
         followUps.filter((f) => f.status !== "draft").map((f) => `${String(f.user)}:${f.type}`)
@@ -194,7 +194,7 @@ export const chat = async (req, res) => {
               `- ${r.name} (${r.role}): morning ${submitted.has(`${String(r._id)}:morning`) ? "submitted" : "pending"}, evening ${submitted.has(`${String(r._id)}:evening`) ? "submitted" : "pending"}`
           )
           .join("\n") || "- none"}`,
-        `Blocked tasks in their team:\n${blocked.map((t) => `- "${t.title}" (${t.assignee?.name || "unassigned"})`).join("\n") || "- none"}`
+        `Blocked tasks in their team:\n${blocked.map((t) => `- "${t.title}" (${t.assignees.map((a) => a.name).join(", ") || "unassigned"})`).join("\n") || "- none"}`
       );
     }
 

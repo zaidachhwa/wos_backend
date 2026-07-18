@@ -201,11 +201,12 @@ const run = async () => {
 
   const taskCreated = await axios.post(
     `${BASE}/tasks`,
-    { project: projectId, module: moduleId, title: "Build API", assignee: member.userId },
+    { project: projectId, module: moduleId, title: "Build API", assignees: [member.userId, outsiderSublead.userId] },
     manager.auth
   );
-  assert.equal(taskCreated.status, 201, "manager creates a task assigned to member");
+  assert.equal(taskCreated.status, 201, "manager creates a task assigned to two people");
   assert.equal(taskCreated.data.data.task.status, "backlog", "new task starts in backlog");
+  assert.equal(taskCreated.data.data.task.assignees.length, 2, "both assignees stored");
   const taskId = taskCreated.data.data.task._id;
 
   const outsiderTaskGet = await axios.get(`${BASE}/tasks/${taskId}`, {
@@ -217,7 +218,13 @@ const run = async () => {
   const memberTaskList = await axios.get(`${BASE}/tasks?assignee=me`, member.auth);
   assert.ok(
     memberTaskList.data.data.tasks.some((t) => t._id === taskId),
-    "assignee=me lists the member's task"
+    "assignee=me lists a task the member is one of several assignees on"
+  );
+
+  const secondAssigneeTaskList = await axios.get(`${BASE}/tasks?assignee=me`, outsiderSublead.auth);
+  assert.ok(
+    secondAssigneeTaskList.data.data.tasks.some((t) => t._id === taskId),
+    "assignee=me also lists the task for the second assignee"
   );
 
   const outsiderTaskList = await axios.get(`${BASE}/tasks`, outsider.auth);
@@ -232,7 +239,7 @@ const run = async () => {
 
   const memberReassignForbidden = await axios.patch(
     `${BASE}/tasks/${taskId}`,
-    { assignee: outsider.userId },
+    { assignees: [outsider.userId] },
     { ...member.auth, validateStatus: () => true }
   );
   assert.equal(memberReassignForbidden.status, 403, "plain assignee cannot reassign the task");
@@ -243,6 +250,13 @@ const run = async () => {
     { ...member.auth, validateStatus: () => true }
   );
   assert.equal(memberTitleForbidden.status, 403, "plain assignee cannot edit title");
+
+  const secondAssigneeCanEditStatus = await axios.patch(
+    `${BASE}/tasks/${taskId}`,
+    { status: "in_progress" },
+    outsiderSublead.auth
+  );
+  assert.equal(secondAssigneeCanEditStatus.status, 200, "the second assignee can also move the task's status");
 
   const toCompleted = await axios.patch(
     `${BASE}/tasks/${taskId}`,

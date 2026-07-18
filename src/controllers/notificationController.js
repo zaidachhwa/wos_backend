@@ -36,7 +36,7 @@ const injectReminders = async (user) => {
 
   const in24h = new Date(now.getTime() + 24 * 3600 * 1000);
   const dueSoon = await Task.find({
-    assignee: user._id,
+    assignees: user._id,
     status: { $ne: "completed" },
     deadline: { $gte: now, $lte: in24h },
   });

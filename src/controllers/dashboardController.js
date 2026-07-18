@@ -59,7 +59,7 @@ const managerLikeDashboard = async (user) => {
   ]);
 
   const reportIds = reports.map((r) => r._id);
-  const taskFilter = { $or: [{ project: { $in: projectIds } }, { assignee: { $in: reportIds } }] };
+  const taskFilter = { $or: [{ project: { $in: projectIds } }, { assignees: { $in: reportIds } }] };
 
   const [
     overdueTasks,
@@ -72,19 +72,19 @@ const managerLikeDashboard = async (user) => {
     recentActivity,
   ] = await Promise.all([
     Task.find({ ...taskFilter, deadline: { $lt: now }, status: { $ne: "completed" } })
-      .populate("assignee", "name role designation")
+      .populate("assignees", "name role designation")
       .sort("deadline"),
     Task.find({ ...taskFilter, deadline: { $gte: now, $lte: in7d }, status: { $ne: "completed" } })
-      .populate("assignee", "name role designation")
+      .populate("assignees", "name role designation")
       .sort("deadline"),
-    Task.find({ ...taskFilter, status: "blocked" }).populate("assignee", "name role designation"),
+    Task.find({ ...taskFilter, status: "blocked" }).populate("assignees", "name role designation"),
     Project.find({
       _id: { $in: projectIds },
       deadline: { $lt: now },
       status: { $nin: ["completed", "cancelled"] },
     }),
-    Task.find({ assignee: { $in: reportIds }, status: { $ne: "completed" } }).select(
-      "assignee estimatedHours"
+    Task.find({ assignees: { $in: reportIds }, status: { $ne: "completed" } }).select(
+      "assignees estimatedHours"
     ),
     FollowUp.find({ user: { $in: reportIds }, date: today, type: "morning" }),
     FollowUp.find({ user: { $in: reportIds }, date: today, type: "evening" }),
@@ -104,7 +104,7 @@ const managerLikeDashboard = async (user) => {
   };
 
   const workload = reports.map((r) => {
-    const openTasks = reportOpenTasks.filter((t) => String(t.assignee) === String(r._id));
+    const openTasks = reportOpenTasks.filter((t) => t.assignees.some((a) => String(a) === String(r._id)));
     return {
       user: { _id: r._id, name: r.name, role: r.role },
       openTasks: openTasks.length,
@@ -133,11 +133,11 @@ const memberDashboard = async (user) => {
   const [todayTasks, upcomingDeadlines, todaySchedule, followUps, projectDocs, recentActivity] =
     await Promise.all([
       Task.find({
-        assignee: user._id,
+        assignees: user._id,
         status: { $ne: "completed" },
         $or: [{ deadline: { $gte: start, $lte: end } }, { status: "in_progress" }],
-      }).populate("assignee", "name role designation"),
-      Task.find({ assignee: user._id, deadline: { $gte: now, $lte: in7d }, status: { $ne: "completed" } }).sort(
+      }).populate("assignees", "name role designation"),
+      Task.find({ assignees: user._id, deadline: { $gte: now, $lte: in7d }, status: { $ne: "completed" } }).sort(
         "deadline"
       ),
       TimeBlock.find({ user: user._id, start: { $gte: start, $lte: end } }).sort("start"),

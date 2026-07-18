@@ -61,11 +61,11 @@ export const teamReport = async (req, res) => {
       // ponytail: updatedAt is the completion-time proxy; a statusChangedAt
       // field is the upgrade path if precision ever matters.
       Task.find({
-        assignee: { $in: ids },
+        assignees: { $in: ids },
         status: "completed",
         updatedAt: { $gte: fromDate, $lte: toDate },
-      }).select("assignee estimatedHours actualHours"),
-      Task.find({ assignee: { $in: ids }, status: { $ne: "completed" } }).select("assignee status"),
+      }).select("assignees estimatedHours actualHours"),
+      Task.find({ assignees: { $in: ids }, status: { $ne: "completed" } }).select("assignees status"),
       FollowUp.find({
         user: { $in: ids },
         date: { $gte: from, $lte: to },
@@ -81,8 +81,8 @@ export const teamReport = async (req, res) => {
     const workingDays = weekdaysBetween(fromDate, toDate);
     const rows = people.map((p) => {
       const id = String(p._id);
-      const done = completedTasks.filter((t) => String(t.assignee) === id);
-      const open = openTasks.filter((t) => String(t.assignee) === id);
+      const done = completedTasks.filter((t) => t.assignees.some((a) => String(a) === id));
+      const open = openTasks.filter((t) => t.assignees.some((a) => String(a) === id));
       const submitted = followUps.filter((f) => String(f.user) === id);
       const morningDays = new Set(
         streakFollowUps.filter((f) => String(f.user) === id).map((f) => f.date)
@@ -160,15 +160,15 @@ export const workLog = async (req, res) => {
 
     const [tasks, modules, evenings] = await Promise.all([
       Task.find({
-        assignee: { $in: ids },
+        assignees: { $in: ids },
         status: "completed",
         updatedAt: { $gte: dayStart, $lte: dayEnd },
-      }).populate("assignee", "name"),
+      }).populate("assignees", "name"),
       ProjectModule.find({
-        lead: { $in: ids },
+        assignees: { $in: ids },
         status: "completed",
         updatedAt: { $gte: dayStart, $lte: dayEnd },
-      }).populate("lead", "name"),
+      }).populate("assignees", "name"),
       FollowUp.find({
         user: { $in: ids },
         date: day,
@@ -180,11 +180,11 @@ export const workLog = async (req, res) => {
     const bullets = (items, empty) => (items.length ? items.map((i) => `- ${i}`).join("\n") : `- ${empty}`);
 
     const taskLines = bullets(
-      tasks.map((t) => `${t.assignee?.name || "Unassigned"}: ${t.title}`),
+      tasks.map((t) => `${t.assignees.map((a) => a.name).join(", ") || "Unassigned"}: ${t.title}`),
       "None"
     );
     const moduleLines = bullets(
-      modules.map((m) => `${m.lead?.name || "Unassigned"}: ${m.name}`),
+      modules.map((m) => `${m.assignees.map((a) => a.name).join(", ") || "Unassigned"}: ${m.name}`),
       "None"
     );
     const todoLines = bullets(

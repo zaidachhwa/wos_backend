@@ -1,5 +1,6 @@
 import Project from "../models/Project.js";
 import ProjectModule from "../models/ProjectModule.js";
+import Task from "../models/Task.js";
 import { recordActivity, notify } from "../utils/record.js";
 import { computeProjectProgress, modulesWithProgress } from "../utils/progress.js";
 
@@ -17,17 +18,23 @@ export const canViewProject = async (user, project) => {
   if (["admin", "manager"].includes(user.role)) return true;
   if (idOf(project.manager) === String(user._id)) return true;
   if ((project.members || []).some((m) => idOf(m) === String(user._id))) return true;
-  const leadsAModule = await ProjectModule.exists({ project: project._id, lead: user._id });
-  return !!leadsAModule;
+  const assignedToAModule = await ProjectModule.exists({ project: project._id, assignees: user._id });
+  if (assignedToAModule) return true;
+  const assignedToATask = await Task.exists({ project: project._id, assignees: user._id });
+  return !!assignedToATask;
 };
 
 // Exported for taskController: build a Project filter matching what a user
 // may view, so task list filtering doesn't duplicate the visibility rule.
 export const visibilityFilter = async (user) => {
   if (["admin", "manager"].includes(user.role)) return {};
-  const ledProjectIds = await ProjectModule.find({ lead: user._id }).distinct("project");
+  const [assignedModuleProjectIds, assignedTaskProjectIds] = await Promise.all([
+    ProjectModule.find({ assignees: user._id }).distinct("project"),
+    Task.find({ assignees: user._id }).distinct("project"),
+  ]);
+  const assignedProjectIds = [...assignedModuleProjectIds, ...assignedTaskProjectIds];
   return {
-    $or: [{ members: user._id }, { manager: user._id }, { _id: { $in: ledProjectIds } }],
+    $or: [{ members: user._id }, { manager: user._id }, { _id: { $in: assignedProjectIds } }],
   };
 };
 

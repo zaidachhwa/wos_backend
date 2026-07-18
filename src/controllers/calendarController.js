@@ -10,7 +10,7 @@ const collectItems = async (userId, fromDate, toDate) => {
 
   const [blocks, tasks, projects, followUps] = await Promise.all([
     TimeBlock.find({ user: userId, start: range }),
-    Task.find({ assignee: userId, deadline: range }),
+    Task.find({ assignees: userId, deadline: range }),
     Project.find({
       $or: [{ manager: userId }, { members: userId }],
       deadline: range,

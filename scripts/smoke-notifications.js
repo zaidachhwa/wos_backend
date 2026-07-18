@@ -40,7 +40,7 @@ const run = async () => {
 
   const task = await axios.post(
     `${BASE}/tasks`,
-    { project: projectId, title: "Notif smoke task", assignee: member.userId },
+    { project: projectId, title: "Notif smoke task", assignees: [member.userId] },
     adminAuth
   );
   assert.equal(task.status, 201, "task created and assigned");
@@ -74,7 +74,7 @@ const run = async () => {
 
   const dueSoonTask = await axios.post(
     `${BASE}/tasks`,
-    { project: projectId, title: "Due soon task", assignee: member.userId, deadline: iso(12) },
+    { project: projectId, title: "Due soon task", assignees: [member.userId], deadline: iso(12) },
     adminAuth
   );
   assert.equal(dueSoonTask.status, 201, "due-soon task created");
