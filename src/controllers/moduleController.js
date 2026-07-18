@@ -1,5 +1,6 @@
 import Project from "../models/Project.js";
 import ProjectModule from "../models/ProjectModule.js";
+import Task from "../models/Task.js";
 import { recordActivity } from "../utils/record.js";
 import { modulesWithProgress } from "../utils/progress.js";
 import { canViewProject } from "./projectController.js";
@@ -85,5 +86,29 @@ export const updateModule = async (req, res) => {
     return res.json({ success: true, message: "Module updated", data: { module: projectModule } });
   } catch (error) {
     return res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+export const deleteModule = async (req, res) => {
+  try {
+    const projectModule = await ProjectModule.findOneAndDelete({
+      _id: req.params.id,
+      project: req.params.projectId,
+    });
+    if (!projectModule) {
+      return res.status(404).json({ success: false, message: "Module not found" });
+    }
+    await Task.deleteMany({ module: projectModule._id });
+    recordActivity({
+      actor: req.user._id,
+      action: "deleted",
+      entityType: "module",
+      entityId: projectModule._id,
+      project: projectModule.project,
+    });
+    return res.json({ success: true, message: "Module deleted", data: null });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: "Something went wrong" });
   }
 };

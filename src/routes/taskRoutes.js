@@ -1,6 +1,13 @@
 import { Router } from "express";
 
-import { createTask, listTasks, getTask, updateTask, addComment } from "../controllers/taskController.js";
+import {
+  createTask,
+  listTasks,
+  getTask,
+  updateTask,
+  addComment,
+  deleteTask,
+} from "../controllers/taskController.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { validateTaskCreate, validateComment } from "../validators/taskValidators.js";
 
@@ -14,5 +21,6 @@ router.get("/:id", getTask);
 // — needs the loaded task/project, so it's enforced inside the controller.
 router.patch("/:id", updateTask);
 router.post("/:id/comments", validateComment, addComment);
+router.delete("/:id", authorize("admin"), deleteTask);
 
 export default router;

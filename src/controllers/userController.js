@@ -2,6 +2,21 @@ import bcrypt from "bcrypt";
 
 import User from "../models/User.js";
 
+// Would this update deactivate or demote the last remaining active admin,
+// locking everyone out of admin-only actions? Checked before isActive:false
+// or role changes take effect.
+const wouldRemoveLastAdmin = async (target, updates) => {
+  if (target.role !== "admin" || !target.isActive) return false;
+  const losingAdmin = updates.isActive === false || (updates.role && updates.role !== "admin");
+  if (!losingAdmin) return false;
+  const otherActiveAdmins = await User.countDocuments({
+    _id: { $ne: target._id },
+    role: "admin",
+    isActive: true,
+  });
+  return otherActiveAdmins === 0;
+};
+
 export const createUser = async (req, res) => {
   try {
     const { name, email, password, role, designation, department, team, reportingManager } =
@@ -68,14 +83,39 @@ export const updateUser = async (req, res) => {
     for (const key of allowed) {
       if (key in req.body) updates[key] = req.body[key];
     }
+    const target = await User.findById(req.params.id);
+    if (!target) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+    if (await wouldRemoveLastAdmin(target, updates)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Cannot remove the last active admin" });
+    }
     const user = await User.findByIdAndUpdate(req.params.id, updates, {
       new: true,
       runValidators: true,
     });
-    if (!user) {
+    return res.json({ success: true, message: "User updated", data: { user } });
+  } catch (error) {
+    return res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+export const deleteUser = async (req, res) => {
+  try {
+    const target = await User.findById(req.params.id);
+    if (!target) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
-    return res.json({ success: true, message: "User updated", data: { user } });
+    if (await wouldRemoveLastAdmin(target, { isActive: false })) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Cannot remove the last active admin" });
+    }
+    target.isActive = false;
+    await target.save();
+    return res.json({ success: true, message: "User deleted", data: { user: target } });
   } catch (error) {
     return res.status(400).json({ success: false, message: error.message });
   }

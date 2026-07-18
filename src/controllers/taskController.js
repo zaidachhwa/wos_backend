@@ -257,3 +257,24 @@ export const addComment = async (req, res) => {
     return res.status(400).json({ success: false, message: error.message });
   }
 };
+
+export const deleteTask = async (req, res) => {
+  try {
+    const task = await Task.findByIdAndDelete(req.params.id);
+    if (!task) {
+      return res.status(404).json({ success: false, message: "Task not found" });
+    }
+    recordActivity({
+      actor: req.user._id,
+      action: "deleted",
+      entityType: "task",
+      entityId: task._id,
+      project: task.project,
+    });
+    broadcast("tasks_changed");
+    return res.json({ success: true, message: "Task deleted", data: null });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: "Something went wrong" });
+  }
+};

@@ -7,7 +7,12 @@ import {
   updateProject,
   deleteProject,
 } from "../controllers/projectController.js";
-import { createModule, listModules, updateModule } from "../controllers/moduleController.js";
+import {
+  createModule,
+  listModules,
+  updateModule,
+  deleteModule,
+} from "../controllers/moduleController.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { validateProjectCreate, validateModuleCreate } from "../validators/projectValidators.js";
 
@@ -30,5 +35,6 @@ router.post(
   createModule
 );
 router.patch("/:projectId/modules/:id", authorize("admin", "manager", "sublead"), updateModule);
+router.delete("/:projectId/modules/:id", authorize("admin"), deleteModule);
 
 export default router;

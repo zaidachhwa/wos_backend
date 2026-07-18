@@ -157,6 +157,10 @@ export const deleteProject = async (req, res) => {
     if (!project) {
       return res.status(404).json({ success: false, message: "Project not found" });
     }
+    await Promise.all([
+      Task.deleteMany({ project: project._id }),
+      ProjectModule.deleteMany({ project: project._id }),
+    ]);
     return res.json({ success: true, message: "Project deleted", data: null });
   } catch (error) {
     console.error(error);
