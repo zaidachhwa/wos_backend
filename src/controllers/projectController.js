@@ -58,6 +58,7 @@ export const createProject = async (req, res) => {
       entityType: "project",
       entityId: project._id,
       project: project._id,
+      meta: { title: project.name },
     });
     for (const memberId of project.members) {
       notify({
@@ -76,6 +77,7 @@ export const createProject = async (req, res) => {
 export const listProjects = async (req, res) => {
   try {
     const filter = await visibilityFilter(req.user);
+    if (req.query.status) filter.status = req.query.status;
     const pageParams = paginationParams(req.query);
     const total = await Project.countDocuments(filter);
     let query = Project.find(filter).populate("manager", "name role designation").sort("-createdAt").lean();
@@ -140,6 +142,7 @@ export const updateProject = async (req, res) => {
       "deadline",
       "status",
     ];
+    const prevStatus = project.status;
     for (const key of allowed) {
       if (key in req.body) project[key] = req.body[key];
     }
@@ -150,6 +153,10 @@ export const updateProject = async (req, res) => {
       entityType: "project",
       entityId: project._id,
       project: project._id,
+      meta:
+        project.status !== prevStatus
+          ? { title: project.name, statusFrom: prevStatus, statusTo: project.status }
+          : { title: project.name },
     });
     return res.json({ success: true, message: "Project updated", data: { project } });
   } catch (error) {

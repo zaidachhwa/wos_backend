@@ -46,6 +46,7 @@ export const createModule = async (req, res) => {
       entityType: "module",
       entityId: projectModule._id,
       project: project._id,
+      meta: { title: projectModule.name },
     });
     return res
       .status(201)
@@ -71,6 +72,7 @@ export const updateModule = async (req, res) => {
     if (!projectModule) {
       return res.status(404).json({ success: false, message: "Module not found" });
     }
+    const prevStatus = projectModule.status;
     const allowed = ["name", "description", "deadline", "assignees", "status"];
     for (const key of allowed) {
       if (key in req.body) projectModule[key] = req.body[key];
@@ -82,6 +84,10 @@ export const updateModule = async (req, res) => {
       entityType: "module",
       entityId: projectModule._id,
       project: projectModule.project,
+      meta:
+        projectModule.status !== prevStatus
+          ? { title: projectModule.name, statusFrom: prevStatus, statusTo: projectModule.status }
+          : { title: projectModule.name },
     });
     return res.json({ success: true, message: "Module updated", data: { module: projectModule } });
   } catch (error) {
@@ -105,6 +111,7 @@ export const deleteModule = async (req, res) => {
       entityType: "module",
       entityId: projectModule._id,
       project: projectModule.project,
+      meta: { title: projectModule.name },
     });
     return res.json({ success: true, message: "Module deleted", data: null });
   } catch (error) {

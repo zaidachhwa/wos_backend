@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-import { PRIORITIES, TASK_STATUSES } from "../constants/enums.constants.js";
+import { PRIORITIES, TASK_STATUSES, TASK_APPROVAL_STATUSES } from "../constants/enums.constants.js";
 
 const subtaskSchema = new mongoose.Schema(
   {
@@ -31,6 +31,13 @@ const taskSchema = new mongoose.Schema(
     title: { type: String, required: true, trim: true },
     description: { type: String, default: "" },
     assignees: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    // Not `required` — tasks created before this field existed have none,
+    // and forcing it would break saving on every pre-existing task. Only
+    // read for approval-pipeline permission checks, which only apply to
+    // tasks created after this field shipped.
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    approvalStatus: { type: String, enum: TASK_APPROVAL_STATUSES, default: "not_required" },
+    approvalComment: { type: String, default: "" },
     priority: { type: String, enum: PRIORITIES, default: "medium" },
     status: { type: String, enum: TASK_STATUSES, default: "backlog" },
     estimatedHours: { type: Number, default: null },

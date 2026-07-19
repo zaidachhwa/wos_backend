@@ -44,6 +44,7 @@ export const createTimeBlock = async (req, res) => {
       entityType: "timeblock",
       entityId: block._id,
       project: block.project ?? null,
+      meta: { title: block.title },
     });
     return res.status(201).json({ success: true, message: "Time block created", data: { timeBlock: block } });
   } catch (error) {
@@ -97,6 +98,7 @@ export const updateTimeBlock = async (req, res) => {
       entityType: "timeblock",
       entityId: block._id,
       project: block.project ?? null,
+      meta: { title: block.title },
     });
     return res.json({ success: true, message: "Time block updated", data: { timeBlock: block } });
   } catch (error) {
@@ -120,6 +122,7 @@ export const deleteTimeBlock = async (req, res) => {
       entityType: "timeblock",
       entityId: block._id,
       project: block.project ?? null,
+      meta: { title: block.title },
     });
     return res.json({ success: true, message: "Time block deleted", data: null });
   } catch (error) {

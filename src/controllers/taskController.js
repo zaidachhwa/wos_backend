@@ -1,6 +1,7 @@
 import Project from "../models/Project.js";
 import ProjectModule from "../models/ProjectModule.js";
 import Task from "../models/Task.js";
+import User from "../models/User.js";
 import { recordActivity, notify } from "../utils/record.js";
 import { broadcast } from "../utils/io.js";
 import { canViewProject, visibilityFilter, idOf } from "./projectController.js";
@@ -56,35 +57,72 @@ export const createTask = async (req, res) => {
       }
     }
 
+    // Members can propose work, but only for themselves — assigning others
+    // stays a sublead+ privilege — and it sits behind manager/admin approval
+    // before it's "real" work.
+    const isMember = req.user.role === "member";
+
     const task = await Task.create({
       project: project._id,
       module: moduleId || null,
       title,
       description,
-      assignees: assignees || [],
+      assignees: isMember ? [req.user._id] : assignees || [],
       priority,
-      status,
+      status: isMember ? "backlog" : status,
       estimatedHours,
       deadline: deadline || null,
       labels: labels || [],
       blockedBy: blockedBy || [],
       recurrence: recurrence || null,
+      createdBy: req.user._id,
+      approvalStatus: isMember ? "pending" : "not_required",
     });
 
-    recordActivity({
-      actor: req.user._id,
-      action: "created",
-      entityType: "task",
-      entityId: task._id,
-      project: project._id,
-    });
-    for (const userId of task.assignees) {
-      notify({
-        user: userId,
-        type: "task_assigned",
-        title: `Assigned to task "${task.title}"`,
-        link: `/tasks/${task._id}`,
+    if (isMember) {
+      recordActivity({
+        actor: req.user._id,
+        action: "submitted_for_approval",
+        entityType: "task",
+        entityId: task._id,
+        project: project._id,
+        meta: { title: task.title },
       });
+      if (req.user.reportingManager) {
+        notify({
+          user: req.user.reportingManager,
+          type: "task_assigned",
+          title: `${req.user.name} proposed a task: "${task.title}"`,
+          link: `/tasks?open=${task._id}`,
+        });
+      } else {
+        const admins = await User.find({ role: "admin" });
+        for (const admin of admins) {
+          notify({
+            user: admin._id,
+            type: "task_assigned",
+            title: `${req.user.name} proposed a task: "${task.title}"`,
+            link: `/tasks?open=${task._id}`,
+          });
+        }
+      }
+    } else {
+      recordActivity({
+        actor: req.user._id,
+        action: "created",
+        entityType: "task",
+        entityId: task._id,
+        project: project._id,
+        meta: { title: task.title },
+      });
+      for (const userId of task.assignees) {
+        notify({
+          user: userId,
+          type: "task_assigned",
+          title: `Assigned to task "${task.title}"`,
+          link: `/tasks/${task._id}`,
+        });
+      }
     }
 
     broadcast("tasks_changed");
@@ -94,13 +132,108 @@ export const createTask = async (req, res) => {
   }
 };
 
+// Mirrors followUpController.reviewFollowUp's state-machine: only the
+// creator's reportingManager or an admin may decide, and only while pending.
+const canDecideApproval = async (user, task) => {
+  if (user.role === "admin") return true;
+  if (!task.createdBy) return false;
+  const creator = await User.findById(task.createdBy);
+  return !!creator && String(creator.reportingManager) === String(user._id);
+};
+
+export const approveTask = async (req, res) => {
+  try {
+    const task = await Task.findById(req.params.id);
+    if (!task) {
+      return res.status(404).json({ success: false, message: "Task not found" });
+    }
+    if (task.approvalStatus !== "pending") {
+      return res.status(409).json({ success: false, message: "Only pending tasks can be approved" });
+    }
+    if (!(await canDecideApproval(req.user, task))) {
+      return res.status(403).json({ success: false, message: "Forbidden" });
+    }
+
+    task.approvalStatus = "approved";
+    // Approver may also adjust these in the same request (e.g. add teammates,
+    // bump priority) — same whitelist as a full task edit.
+    for (const key of ["assignees", "status", "priority"]) {
+      if (key in req.body) task[key] = req.body[key];
+    }
+    await task.save();
+
+    recordActivity({
+      actor: req.user._id,
+      action: "approved",
+      entityType: "task",
+      entityId: task._id,
+      project: task.project,
+      meta: { title: task.title },
+    });
+    notify({
+      user: task.createdBy,
+      type: "task_assigned",
+      title: `Your task "${task.title}" was approved`,
+      link: `/tasks/${task._id}`,
+    });
+
+    broadcast("tasks_changed");
+    return res.json({ success: true, message: "Task approved", data: { task } });
+  } catch (error) {
+    return res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+export const rejectTask = async (req, res) => {
+  try {
+    const task = await Task.findById(req.params.id);
+    if (!task) {
+      return res.status(404).json({ success: false, message: "Task not found" });
+    }
+    if (task.approvalStatus !== "pending") {
+      return res.status(409).json({ success: false, message: "Only pending tasks can be rejected" });
+    }
+    if (!(await canDecideApproval(req.user, task))) {
+      return res.status(403).json({ success: false, message: "Forbidden" });
+    }
+    if (!req.body.approvalComment || !String(req.body.approvalComment).trim()) {
+      return res.status(400).json({ success: false, message: "approvalComment (a reason) is required" });
+    }
+
+    task.approvalStatus = "rejected";
+    task.approvalComment = req.body.approvalComment;
+    await task.save();
+
+    recordActivity({
+      actor: req.user._id,
+      action: "rejected",
+      entityType: "task",
+      entityId: task._id,
+      project: task.project,
+      meta: { title: task.title },
+    });
+    notify({
+      user: task.createdBy,
+      type: "task_assigned",
+      title: `Your task "${task.title}" was rejected`,
+      link: `/tasks/${task._id}`,
+    });
+
+    broadcast("tasks_changed");
+    return res.json({ success: true, message: "Task rejected", data: { task } });
+  } catch (error) {
+    return res.status(400).json({ success: false, message: error.message });
+  }
+};
+
 export const listTasks = async (req, res) => {
   try {
-    const { project, module, assignee, status, priority, search, dueBefore } = req.query;
+    const { project, module, assignee, status, priority, search, dueBefore, approvalStatus } = req.query;
     const filter = {};
     if (module) filter.module = module;
     if (status) filter.status = status;
     if (priority) filter.priority = priority;
+    if (approvalStatus) filter.approvalStatus = approvalStatus;
     if (assignee) filter.assignees = assignee === "me" ? req.user._id : assignee;
     if (search) {
       const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -172,6 +305,11 @@ export const updateTask = async (req, res) => {
     if (!project) {
       return res.status(404).json({ success: false, message: "Project not found" });
     }
+    if (task.approvalStatus === "pending") {
+      return res
+        .status(409)
+        .json({ success: false, message: "Task is pending manager approval and can't be edited yet" });
+    }
 
     const canManageFully = SUBLEAD_PLUS.includes(req.user.role) && (await canViewProject(req.user, project));
     const isAssignee = task.assignees.some((a) => idOf(a) === String(req.user._id));
@@ -202,15 +340,20 @@ export const updateTask = async (req, res) => {
     }
     await task.save();
 
+    const newlyAssigned = task.assignees.map((a) => String(a)).filter((id) => !prevAssignees.includes(id));
     recordActivity({
       actor: req.user._id,
       action: "updated",
       entityType: "task",
       entityId: task._id,
       project: task.project,
+      meta: {
+        title: task.title,
+        ...(task.status !== prevStatus ? { statusFrom: prevStatus, statusTo: task.status } : {}),
+        ...(newlyAssigned.length ? { assigneesAdded: newlyAssigned.length } : {}),
+      },
     });
 
-    const newlyAssigned = task.assignees.map((a) => String(a)).filter((id) => !prevAssignees.includes(id));
     for (const userId of newlyAssigned) {
       notify({
         user: userId,
@@ -252,6 +395,7 @@ export const updateTask = async (req, res) => {
         subtasks: [],
         comments: [],
         blockedBy: [],
+        createdBy: task.createdBy,
       });
 
       recordActivity({
@@ -260,6 +404,7 @@ export const updateTask = async (req, res) => {
         entityType: "task",
         entityId: nextTask._id,
         project: nextTask.project,
+        meta: { title: nextTask.title },
       });
       for (const userId of nextTask.assignees) {
         notify({
@@ -298,6 +443,7 @@ export const addComment = async (req, res) => {
       entityType: "task",
       entityId: task._id,
       project: task.project,
+      meta: { title: task.title },
     });
     for (const userId of task.assignees) {
       if (idOf(userId) !== String(req.user._id)) {
@@ -379,6 +525,7 @@ export const bulkUpdateTasks = async (req, res) => {
       const project = await Project.findById(task.project);
       if (!project || !(await canViewProject(req.user, project))) continue;
 
+      const prevStatus = task.status;
       if (status !== undefined) task.status = status;
       if (assignees !== undefined) task.assignees = assignees;
       await task.save();
@@ -389,6 +536,10 @@ export const bulkUpdateTasks = async (req, res) => {
         entityType: "task",
         entityId: task._id,
         project: task.project,
+        meta: {
+          title: task.title,
+          ...(status !== undefined && status !== prevStatus ? { statusFrom: prevStatus, statusTo: status } : {}),
+        },
       });
       updated += 1;
     }
@@ -412,6 +563,7 @@ export const deleteTask = async (req, res) => {
       entityType: "task",
       entityId: task._id,
       project: task.project,
+      meta: { title: task.title },
     });
     broadcast("tasks_changed");
     return res.json({ success: true, message: "Task deleted", data: null });

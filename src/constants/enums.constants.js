@@ -12,6 +12,11 @@ export const TASK_STATUSES = [
   "blocked",
 ];
 
+// A member-created task starts "pending" until its reportingManager (or an
+// admin) approves it; admin/manager/sublead-created tasks skip approval
+// entirely ("not_required").
+export const TASK_APPROVAL_STATUSES = ["not_required", "pending", "approved", "rejected"];
+
 export const FOLLOWUP_TYPES = ["morning", "evening"];
 
 export const FOLLOWUP_STATUSES = ["draft", "submitted", "reviewed"];

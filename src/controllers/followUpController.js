@@ -2,6 +2,7 @@ import FollowUp from "../models/FollowUp.js";
 import User from "../models/User.js";
 import Task from "../models/Task.js";
 import { recordActivity, notify } from "../utils/record.js";
+import { paginationParams, paginationMeta } from "../utils/pagination.js";
 
 const SUBLEAD_PLUS = ["admin", "manager", "sublead"];
 
@@ -36,6 +37,7 @@ export const upsertFollowUp = async (req, res) => {
         action: "submitted",
         entityType: "followup",
         entityId: followUp._id,
+        meta: { title: `${type} follow-up` },
       });
       if (req.user.reportingManager) {
         notify({
@@ -95,8 +97,16 @@ export const listFollowUps = async (req, res) => {
     const filter = { user: req.user._id };
     if (date) filter.date = date;
     if (type) filter.type = type;
-    const followUps = await FollowUp.find(filter).sort("-date");
-    return res.json({ success: true, message: "Follow-ups fetched", data: { followUps } });
+    const pageParams = paginationParams(req.query);
+    const total = await FollowUp.countDocuments(filter);
+    let query = FollowUp.find(filter).sort("-date");
+    if (pageParams) query = query.skip(pageParams.skip).limit(pageParams.limit);
+    const followUps = await query;
+    return res.json({
+      success: true,
+      message: "Follow-ups fetched",
+      data: { followUps, pagination: paginationMeta(total, pageParams) },
+    });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ success: false, message: "Something went wrong" });
@@ -129,6 +139,7 @@ export const reviewFollowUp = async (req, res) => {
       action: "reviewed",
       entityType: "followup",
       entityId: followUp._id,
+      meta: { title: `${followUp.type} follow-up` },
     });
     notify({
       user: followUp.user,
