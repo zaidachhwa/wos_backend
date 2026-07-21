@@ -12,6 +12,11 @@ const refreshCookieOptions = {
   maxAge: 7 * 24 * 60 * 60 * 1000,
 };
 
+// ponytail: fixed 10s grace window, not a full multi-session token family —
+// widen or move to a session array if concurrent multi-device logins need
+// to stay independently valid long-term.
+const REFRESH_GRACE_MS = 10_000;
+
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -25,6 +30,8 @@ export const login = async (req, res) => {
     const accessToken = signAccessToken(user);
     const refreshToken = signRefreshToken(user);
     user.refreshToken = refreshToken;
+    user.previousRefreshToken = null;
+    user.previousRefreshTokenExpiresAt = null;
     await user.save();
     res.cookie("refreshToken", refreshToken, refreshCookieOptions);
     const safeUser = await User.findById(user._id).populate("department team");
@@ -47,16 +54,39 @@ export const refresh = async (req, res) => {
     } catch {
       return res.status(401).json({ success: false, message: "Not authenticated" });
     }
-    const user = await User.findById(payload.sub).select("+refreshToken");
-    if (!user || !user.isActive || user.refreshToken !== token) {
+    const user = await User.findById(payload.sub).select(
+      "+refreshToken +previousRefreshToken +previousRefreshTokenExpiresAt"
+    );
+    if (!user || !user.isActive) {
       return res.status(401).json({ success: false, message: "Not authenticated" });
     }
-    const accessToken = signAccessToken(user);
-    const newRefreshToken = signRefreshToken(user);
-    user.refreshToken = newRefreshToken;
-    await user.save();
-    res.cookie("refreshToken", newRefreshToken, refreshCookieOptions);
-    return res.json({ success: true, message: "Token refreshed", data: { accessToken } });
+
+    if (token === user.refreshToken) {
+      // Normal rotation: keep the just-replaced token valid for a short
+      // grace window so a raced/duplicate refresh doesn't 401 a 2nd caller.
+      const accessToken = signAccessToken(user);
+      const newRefreshToken = signRefreshToken(user);
+      user.previousRefreshToken = user.refreshToken;
+      user.previousRefreshTokenExpiresAt = new Date(Date.now() + REFRESH_GRACE_MS);
+      user.refreshToken = newRefreshToken;
+      await user.save();
+      res.cookie("refreshToken", newRefreshToken, refreshCookieOptions);
+      return res.json({ success: true, message: "Token refreshed", data: { accessToken } });
+    }
+
+    if (
+      token === user.previousRefreshToken &&
+      user.previousRefreshTokenExpiresAt &&
+      user.previousRefreshTokenExpiresAt.getTime() > Date.now()
+    ) {
+      // Raced request: another caller already rotated the token. Don't
+      // rotate again — just converge this caller onto the current token.
+      const accessToken = signAccessToken(user);
+      res.cookie("refreshToken", user.refreshToken, refreshCookieOptions);
+      return res.json({ success: true, message: "Token refreshed", data: { accessToken } });
+    }
+
+    return res.status(401).json({ success: false, message: "Not authenticated" });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ success: false, message: "Something went wrong" });
@@ -69,7 +99,11 @@ export const logout = async (req, res) => {
     if (token) {
       try {
         const payload = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
-        await User.findByIdAndUpdate(payload.sub, { refreshToken: null });
+        await User.findByIdAndUpdate(payload.sub, {
+          refreshToken: null,
+          previousRefreshToken: null,
+          previousRefreshTokenExpiresAt: null,
+        });
       } catch {
         // expired or invalid token — nothing to invalidate
       }

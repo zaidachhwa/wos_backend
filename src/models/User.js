@@ -14,6 +14,11 @@ const userSchema = new mongoose.Schema(
     reportingManager: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     isActive: { type: Boolean, default: true },
     refreshToken: { type: String, default: null, select: false },
+    // Grace-period slot: keeps the previous refresh token valid for a short
+    // window after rotation so a raced/duplicate refresh (2nd tab, retried
+    // request) doesn't force-logout a still-valid session.
+    previousRefreshToken: { type: String, default: null, select: false },
+    previousRefreshTokenExpiresAt: { type: Date, default: null, select: false },
     icsToken: { type: String, default: null, select: false },
   },
   { timestamps: true }

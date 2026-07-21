@@ -1,6 +1,8 @@
 export const PRIORITIES = ["low", "medium", "high", "critical"];
 
-export const PROJECT_STATUSES = ["planning", "active", "on_hold", "completed", "cancelled"];
+export const PROJECT_STATUSES = ["planning", "active", "review", "on_hold", "completed", "cancelled"];
+
+export const PROJECT_TYPES = ["internal", "client", "product"];
 
 export const TASK_STATUSES = [
   "backlog",

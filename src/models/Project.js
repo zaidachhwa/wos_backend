@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-import { PRIORITIES, PROJECT_STATUSES } from "../constants/enums.constants.js";
+import { PRIORITIES, PROJECT_STATUSES, PROJECT_TYPES } from "../constants/enums.constants.js";
 
 const projectSchema = new mongoose.Schema(
   {
@@ -12,6 +12,7 @@ const projectSchema = new mongoose.Schema(
     startDate: { type: Date, default: null },
     deadline: { type: Date, default: null },
     status: { type: String, enum: PROJECT_STATUSES, default: "planning" },
+    type: { type: String, enum: PROJECT_TYPES, required: true, default: "internal" },
   },
   { timestamps: true }
 );

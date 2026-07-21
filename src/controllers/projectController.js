@@ -41,7 +41,7 @@ export const visibilityFilter = async (user) => {
 
 export const createProject = async (req, res) => {
   try {
-    const { name, description, manager, members, priority, startDate, deadline, status } = req.body;
+    const { name, description, manager, members, priority, startDate, deadline, status, type } = req.body;
     const project = await Project.create({
       name,
       description,
@@ -51,6 +51,7 @@ export const createProject = async (req, res) => {
       startDate: startDate || null,
       deadline: deadline || null,
       status,
+      type,
     });
     recordActivity({
       actor: req.user._id,
@@ -78,6 +79,11 @@ export const listProjects = async (req, res) => {
   try {
     const filter = await visibilityFilter(req.user);
     if (req.query.status) filter.status = req.query.status;
+    if (req.query.type) filter.type = req.query.type;
+    if (req.query.search) {
+      const escaped = req.query.search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      filter.name = { $regex: escaped, $options: "i" };
+    }
     const pageParams = paginationParams(req.query);
     const total = await Project.countDocuments(filter);
     let query = Project.find(filter).populate("manager", "name role designation").sort("-createdAt").lean();
@@ -141,6 +147,7 @@ export const updateProject = async (req, res) => {
       "startDate",
       "deadline",
       "status",
+      "type",
     ];
     const prevStatus = project.status;
     for (const key of allowed) {
