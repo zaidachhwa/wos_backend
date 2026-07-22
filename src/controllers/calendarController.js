@@ -4,7 +4,6 @@ import Project from "../models/Project.js";
 import FollowUp from "../models/FollowUp.js";
 import User from "../models/User.js";
 import { canActForUser } from "./timeblockController.js";
-import { combineDeadlineAndTime } from "../utils/taskDates.js";
 
 const collectItems = async (userId, fromDate, toDate) => {
   const range = { $gte: fromDate, $lte: toDate };
@@ -41,8 +40,13 @@ const collectItems = async (userId, fromDate, toDate) => {
       id: String(t._id),
       type: "task_deadline",
       title: t.title,
-      start: t.startTime ? combineDeadlineAndTime(t.deadline, t.startTime) : t.deadline,
-      end: t.endTime ? combineDeadlineAndTime(t.deadline, t.endTime) : undefined,
+      // Raw pieces, not a pre-combined instant — the server doesn't know the
+      // viewer's timezone, so combining "HH:mm" with the deadline's date
+      // happens client-side (see wos_frontend's calendar page), the same
+      // way <input type="time"> values are always treated as local.
+      start: t.deadline,
+      startTime: t.startTime || null,
+      endTime: t.endTime || null,
       link: "/tasks",
     });
   }
