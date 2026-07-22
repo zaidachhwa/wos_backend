@@ -4,6 +4,7 @@ import Project from "../models/Project.js";
 import FollowUp from "../models/FollowUp.js";
 import User from "../models/User.js";
 import { canActForUser } from "./timeblockController.js";
+import { combineDeadlineAndTime } from "../utils/taskDates.js";
 
 const collectItems = async (userId, fromDate, toDate) => {
   const range = { $gte: fromDate, $lte: toDate };
@@ -40,7 +41,8 @@ const collectItems = async (userId, fromDate, toDate) => {
       id: String(t._id),
       type: "task_deadline",
       title: t.title,
-      start: t.deadline,
+      start: t.startTime ? combineDeadlineAndTime(t.deadline, t.startTime) : t.deadline,
+      end: t.endTime ? combineDeadlineAndTime(t.deadline, t.endTime) : undefined,
       link: "/tasks",
     });
   }

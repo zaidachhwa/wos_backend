@@ -43,6 +43,10 @@ const taskSchema = new mongoose.Schema(
     estimatedHours: { type: Number, default: null },
     actualHours: { type: Number, default: null },
     deadline: { type: Date, default: null },
+    // Time-of-day on `deadline`'s date, "HH:mm" — not a separate Date, to
+    // avoid drifting out of sync with `deadline` if only one is edited.
+    startTime: { type: String, default: null },
+    endTime: { type: String, default: null },
     labels: [{ type: String }],
     subtasks: [subtaskSchema],
     comments: [commentSchema],

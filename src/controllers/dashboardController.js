@@ -8,6 +8,7 @@ import User from "../models/User.js";
 import { visibilityFilter } from "./projectController.js";
 import { computeProjectProgress } from "../utils/progress.js";
 import { localDay } from "./notificationController.js";
+import { isTaskOverdue } from "../utils/taskDates.js";
 
 const dayBounds = (d) => {
   const start = new Date(d);
@@ -71,9 +72,13 @@ const managerLikeDashboard = async (user) => {
     eveningFollowUps,
     recentActivity,
   ] = await Promise.all([
-    Task.find({ ...taskFilter, deadline: { $lt: now }, status: { $ne: "completed" } })
+    // Time-slot-aware overdue can't be expressed as a single Mongo query
+    // (combining date + "HH:mm" time), so fetch candidates and filter in JS
+    // via the shared predicate — per-manager task volumes are small.
+    Task.find({ ...taskFilter, deadline: { $ne: null }, status: { $ne: "completed" } })
       .populate("assignees", "name role designation")
-      .sort("deadline"),
+      .sort("deadline")
+      .then((tasks) => tasks.filter((t) => isTaskOverdue(t, now))),
     Task.find({ ...taskFilter, deadline: { $gte: now, $lte: in7d }, status: { $ne: "completed" } })
       .populate("assignees", "name role designation")
       .sort("deadline"),

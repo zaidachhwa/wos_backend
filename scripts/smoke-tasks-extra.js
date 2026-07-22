@@ -61,12 +61,54 @@ const run = async () => {
       assignees: [member.userId],
       blockedBy: [blockerId],
       deadline,
+      startTime: "09:00",
+      endTime: "10:30",
       recurrence: { frequency: "daily", interval: 1 },
     },
     manager.auth
   );
-  assert.equal(blocked.status, 201, "creates a task with blockedBy + recurrence");
+  assert.equal(blocked.status, 201, "creates a task with blockedBy + recurrence + a time slot");
+  assert.equal(blocked.data.data.task.startTime, "09:00", "startTime saved");
+  assert.equal(blocked.data.data.task.endTime, "10:30", "endTime saved");
   const blockedId = blocked.data.data.task._id;
+
+  // --- time slot validation --------------------------------------------------
+
+  const lonelyStartTime = await axios.post(
+    `${BASE}/tasks`,
+    { project: projectId, title: "Lonely start", deadline, startTime: "09:00" },
+    { ...manager.auth, validateStatus: () => true }
+  );
+  assert.equal(lonelyStartTime.status, 400, "startTime without endTime is rejected on create");
+
+  const backwardsTimeSlot = await axios.post(
+    `${BASE}/tasks`,
+    { project: projectId, title: "Backwards slot", deadline, startTime: "10:00", endTime: "09:00" },
+    { ...manager.auth, validateStatus: () => true }
+  );
+  assert.equal(backwardsTimeSlot.status, 400, "endTime before startTime is rejected on create");
+
+  const timeSlotNoDeadline = await axios.post(
+    `${BASE}/tasks`,
+    { project: projectId, title: "No deadline slot", startTime: "09:00", endTime: "10:00" },
+    { ...manager.auth, validateStatus: () => true }
+  );
+  assert.equal(timeSlotNoDeadline.status, 400, "a time slot without a deadline is rejected on create");
+
+  const patchLonelyEndTime = await axios.patch(
+    `${BASE}/tasks/${blockedId}`,
+    { endTime: null },
+    { ...manager.auth, validateStatus: () => true }
+  );
+  assert.equal(patchLonelyEndTime.status, 400, "clearing only endTime (leaving startTime set) is rejected on update");
+
+  const patchValidTimeSlot = await axios.patch(
+    `${BASE}/tasks/${blockedId}`,
+    { startTime: "13:00", endTime: "14:00" },
+    manager.auth
+  );
+  assert.equal(patchValidTimeSlot.status, 200, "updating both start and end time together succeeds");
+  assert.equal(patchValidTimeSlot.data.data.task.startTime, "13:00", "PATCH updates startTime");
 
   const blockedGet = await axios.get(`${BASE}/tasks/${blockedId}`, manager.auth);
   assert.equal(blockedGet.data.data.task.blockedBy.length, 1, "blockedBy populated on getTask");
@@ -76,6 +118,29 @@ const run = async () => {
   const listWithBlocked = await axios.get(`${BASE}/tasks?project=${projectId}`, manager.auth);
   const listed = listWithBlocked.data.data.tasks.find((t) => t._id === blockedId);
   assert.equal(listed.blockedBy[0].title, "Blocker task", "blockedBy populated on listTasks too");
+
+  // --- dueAfter/dueBefore date-range filter ----------------------------------
+
+  const earlyTask = await axios.post(
+    `${BASE}/tasks`,
+    { project: projectId, title: "Early task", deadline: new Date("2026-07-01T00:00:00.000Z") },
+    manager.auth
+  );
+  const lateTask = await axios.post(
+    `${BASE}/tasks`,
+    { project: projectId, title: "Late task", deadline: new Date("2026-09-01T00:00:00.000Z") },
+    manager.auth
+  );
+  const rangeFiltered = await axios.get(
+    `${BASE}/tasks?project=${projectId}&dueAfter=2026-07-15&dueBefore=2026-08-15`,
+    manager.auth
+  );
+  const rangeTitles = rangeFiltered.data.data.tasks.map((t) => t.title);
+  assert.ok(rangeTitles.includes("Blocked recurring task"), "dueAfter/dueBefore range includes the in-range task");
+  assert.ok(!rangeTitles.includes("Early task"), "dueAfter excludes a task before the range");
+  assert.ok(!rangeTitles.includes("Late task"), "dueBefore excludes a task after the range");
+  assert.equal(earlyTask.status, 201);
+  assert.equal(lateTask.status, 201);
 
   // --- comments: edit/delete permissions -----------------------------------
 
@@ -195,6 +260,8 @@ const run = async () => {
   assert.equal(nextOccurrence.status, "backlog", "next occurrence starts in backlog");
   assert.equal(nextOccurrence.assignees.length, 1, "next occurrence carries over assignees");
   assert.equal(nextOccurrence.blockedBy.length, 0, "next occurrence does not carry over blockedBy");
+  assert.equal(nextOccurrence.startTime, "13:00", "next occurrence carries over startTime");
+  assert.equal(nextOccurrence.endTime, "14:00", "next occurrence carries over endTime");
   const expectedDeadline = new Date(deadline);
   expectedDeadline.setDate(expectedDeadline.getDate() + 1);
   assert.equal(

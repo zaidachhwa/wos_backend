@@ -7,6 +7,7 @@ import User from "../models/User.js";
 import { canViewProject, visibilityFilter } from "./projectController.js";
 import { localDay } from "./notificationController.js";
 import { aiConfigured, generateText, generateJson } from "../services/gemini.js";
+import { isTaskOverdue } from "../utils/taskDates.js";
 
 export const requireAI = (req, res, next) => {
   if (!aiConfigured()) {
@@ -122,12 +123,12 @@ export const projectHealth = async (req, res) => {
     }
     const [modules, tasks] = await Promise.all([
       ProjectModule.find({ project: project._id }),
-      Task.find({ project: project._id }).select("status deadline"),
+      Task.find({ project: project._id }).select("status deadline startTime endTime"),
     ]);
     const now = new Date();
     const counts = {};
     for (const t of tasks) counts[t.status] = (counts[t.status] || 0) + 1;
-    const overdue = tasks.filter((t) => t.deadline && t.deadline < now && t.status !== "completed").length;
+    const overdue = tasks.filter((t) => isTaskOverdue(t, now)).length;
 
     const summary = [
       `Project "${project.name}" — status ${project.status}, deadline ${project.deadline ? project.deadline.toISOString().slice(0, 10) : "none"} (today ${now.toISOString().slice(0, 10)}).`,

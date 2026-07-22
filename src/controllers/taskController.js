@@ -6,6 +6,7 @@ import { recordActivity, notify } from "../utils/record.js";
 import { broadcast } from "../utils/io.js";
 import { canViewProject, visibilityFilter, idOf } from "./projectController.js";
 import { paginationParams, paginationMeta } from "../utils/pagination.js";
+import { validateTimeSlot } from "../utils/taskDates.js";
 
 const SUBLEAD_PLUS = ["admin", "manager", "sublead"];
 
@@ -19,6 +20,8 @@ const FULL_FIELDS = [
   "estimatedHours",
   "actualHours",
   "deadline",
+  "startTime",
+  "endTime",
   "labels",
   "subtasks",
   "blockedBy",
@@ -38,10 +41,17 @@ export const createTask = async (req, res) => {
       status,
       estimatedHours,
       deadline,
+      startTime,
+      endTime,
       labels,
       blockedBy,
       recurrence,
     } = req.body;
+
+    const timeSlotError = validateTimeSlot({ deadline, startTime, endTime });
+    if (timeSlotError) {
+      return res.status(400).json({ success: false, message: timeSlotError });
+    }
 
     const project = await Project.findById(projectId);
     if (!project) {
@@ -72,6 +82,8 @@ export const createTask = async (req, res) => {
       status: isMember ? "backlog" : status,
       estimatedHours,
       deadline: deadline || null,
+      startTime: startTime || null,
+      endTime: endTime || null,
       labels: labels || [],
       blockedBy: blockedBy || [],
       recurrence: recurrence || null,
@@ -228,7 +240,7 @@ export const rejectTask = async (req, res) => {
 
 export const listTasks = async (req, res) => {
   try {
-    const { project, module, assignee, status, priority, search, dueBefore, approvalStatus } = req.query;
+    const { project, module, assignee, status, priority, search, dueBefore, dueAfter, approvalStatus } = req.query;
     const filter = {};
     if (module) filter.module = module;
     if (status) filter.status = status;
@@ -239,7 +251,11 @@ export const listTasks = async (req, res) => {
       const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       filter.title = { $regex: escaped, $options: "i" };
     }
-    if (dueBefore) filter.deadline = { $lte: new Date(dueBefore) };
+    if (dueBefore || dueAfter) {
+      filter.deadline = {};
+      if (dueAfter) filter.deadline.$gte = new Date(dueAfter);
+      if (dueBefore) filter.deadline.$lte = new Date(dueBefore);
+    }
 
     if (project) {
       const projectDoc = await Project.findById(project);
@@ -338,6 +354,12 @@ export const updateTask = async (req, res) => {
     for (const key of allowedFields) {
       if (key in req.body) task[key] = req.body[key];
     }
+
+    const timeSlotError = validateTimeSlot(task);
+    if (timeSlotError) {
+      return res.status(400).json({ success: false, message: timeSlotError });
+    }
+
     await task.save();
 
     const newlyAssigned = task.assignees.map((a) => String(a)).filter((id) => !prevAssignees.includes(id));
@@ -391,6 +413,8 @@ export const updateTask = async (req, res) => {
         labels: task.labels,
         recurrence: task.recurrence,
         deadline: nextDeadline,
+        startTime: task.startTime,
+        endTime: task.endTime,
         status: "backlog",
         subtasks: [],
         comments: [],
