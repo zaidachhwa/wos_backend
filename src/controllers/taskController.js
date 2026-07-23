@@ -7,6 +7,7 @@ import { broadcast } from "../utils/io.js";
 import { canViewProject, visibilityFilter, idOf } from "./projectController.js";
 import { paginationParams, paginationMeta } from "../utils/pagination.js";
 import { validateTimeSlot } from "../utils/taskDates.js";
+import { maxBonusFor } from "../utils/points.js";
 
 const SUBLEAD_PLUS = ["admin", "manager", "sublead"];
 
@@ -22,6 +23,7 @@ const FULL_FIELDS = [
   "deadline",
   "startTime",
   "endTime",
+  "bonusPoints",
   "labels",
   "subtasks",
   "blockedBy",
@@ -350,6 +352,7 @@ export const updateTask = async (req, res) => {
 
     const prevAssignees = task.assignees.map((a) => String(a));
     const prevStatus = task.status;
+    const prevBonusPoints = task.bonusPoints;
 
     for (const key of allowedFields) {
       if (key in req.body) task[key] = req.body[key];
@@ -358,6 +361,12 @@ export const updateTask = async (req, res) => {
     const timeSlotError = validateTimeSlot(task);
     if (timeSlotError) {
       return res.status(400).json({ success: false, message: timeSlotError });
+    }
+
+    if (task.bonusPoints > maxBonusFor(task.priority)) {
+      return res
+        .status(400)
+        .json({ success: false, message: `bonusPoints cannot exceed ${maxBonusFor(task.priority)} for this priority` });
     }
 
     await task.save();
@@ -383,6 +392,16 @@ export const updateTask = async (req, res) => {
         title: `Assigned to task "${task.title}"`,
         link: `/tasks/${task._id}`,
       });
+    }
+    if (task.bonusPoints !== prevBonusPoints && task.bonusPoints > 0) {
+      for (const userId of task.assignees) {
+        notify({
+          user: userId,
+          type: "points_awarded",
+          title: `+${task.bonusPoints} bonus points for "${task.title}"`,
+          link: `/tasks/${task._id}`,
+        });
+      }
     }
     if (task.status !== prevStatus) {
       for (const userId of task.assignees) {

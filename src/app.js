@@ -18,6 +18,7 @@ import profileRoutes from "./routes/profileRoutes.js";
 import aiRoutes from "./routes/aiRoutes.js";
 import reportRoutes from "./routes/reportRoutes.js";
 import searchRoutes from "./routes/searchRoutes.js";
+import leaderboardRoutes from "./routes/leaderboardRoutes.js";
 
 const app = express();
 
@@ -41,6 +42,7 @@ app.use("/api/profile", profileRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/search", searchRoutes);
+app.use("/api/leaderboard", leaderboardRoutes);
 
 app.get("/api/health", (req, res) => {
   res.json({ success: true, message: "OK" });

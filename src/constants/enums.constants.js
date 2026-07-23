@@ -42,6 +42,7 @@ export const NOTIFICATION_TYPES = [
   "followup_submitted",
   "followup_reviewed",
   "project_updated",
+  "points_awarded",
 ];
 
 export const ACTIVITY_ENTITY_TYPES = ["project", "module", "task", "followup", "timeblock", "user"];

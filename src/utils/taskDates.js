@@ -16,7 +16,7 @@ export const combineDeadlineAndTime = (deadline, timeStr) => {
   return new Date(`${dateStr}T${timeStr}`);
 };
 
-const endOfDayLocal = (deadline) => {
+export const endOfDayLocal = (deadline) => {
   const dateStr = new Date(deadline).toISOString().slice(0, 10);
   const d = new Date(`${dateStr}T00:00:00`);
   d.setHours(23, 59, 59, 999);

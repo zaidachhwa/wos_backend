@@ -47,6 +47,9 @@ const taskSchema = new mongoose.Schema(
     // avoid drifting out of sync with `deadline` if only one is edited.
     startTime: { type: String, default: null },
     endTime: { type: String, default: null },
+    // Senior-awarded discretionary bonus for the leaderboard, capped at
+    // maxBonusFor(priority) — see utils/points.js.
+    bonusPoints: { type: Number, default: 0, min: 0 },
     labels: [{ type: String }],
     subtasks: [subtaskSchema],
     comments: [commentSchema],
