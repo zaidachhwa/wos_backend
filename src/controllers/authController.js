@@ -4,10 +4,18 @@ import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 import { signAccessToken, signRefreshToken } from "../utils/tokens.js";
 
+// Set COOKIE_CROSS_SITE=true when the frontend and API are on different
+// registrable domains (e.g. app.example.com vs api.otherdomain.com) — a
+// genuinely cross-site request only carries a cookie if it's SameSite=None,
+// and browsers require Secure (HTTPS) for SameSite=None or they drop the
+// cookie outright. Same-site deployments (including cross-subdomain, e.g.
+// app.example.com + api.example.com) should leave this unset — Lax already
+// works there and is the safer default.
+const isCrossSite = process.env.COOKIE_CROSS_SITE === "true";
 const refreshCookieOptions = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "lax",
+  secure: isCrossSite || process.env.NODE_ENV === "production",
+  sameSite: isCrossSite ? "none" : "lax",
   path: "/api/auth",
   maxAge: 7 * 24 * 60 * 60 * 1000,
 };
