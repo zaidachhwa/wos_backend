@@ -1,7 +1,11 @@
-import { POINTS_BY_PRIORITY, AUTO_AWARD_RATIO, OVERDUE_PENALTY } from "../constants/points.constants.js";
+import { AUTO_AWARD_RATIO, OVERDUE_PENALTY } from "../constants/points.constants.js";
+import { getPointsByPriority } from "./pointsConfig.js";
 import { combineDeadlineAndTime, endOfDayLocal } from "./taskDates.js";
 
-export const taskPointCeiling = (priority) => POINTS_BY_PRIORITY[priority] ?? POINTS_BY_PRIORITY.medium;
+export const taskPointCeiling = (priority) => {
+  const points = getPointsByPriority();
+  return points[priority] ?? points.medium;
+};
 
 export const maxBonusFor = (priority) =>
   taskPointCeiling(priority) - Math.round(taskPointCeiling(priority) * AUTO_AWARD_RATIO);

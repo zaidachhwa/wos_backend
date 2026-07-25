@@ -1,8 +1,6 @@
 import Task from "../models/Task.js";
-import ProjectModule from "../models/ProjectModule.js";
 import FollowUp from "../models/FollowUp.js";
 import User from "../models/User.js";
-import { localDay } from "./notificationController.js";
 
 const DAY = 24 * 3600 * 1000;
 
@@ -140,91 +138,3 @@ export const teamReport = async (req, res) => {
   }
 };
 
-const fmtDate = (d) => d.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
-
-export const workLog = async (req, res) => {
-  try {
-    const day = typeof req.query.date === "string" && req.query.date ? req.query.date : localDay(new Date());
-    const dayStart = new Date(`${day}T00:00:00`);
-    const dayEnd = new Date(`${day}T23:59:59.999`);
-    if (Number.isNaN(dayStart.getTime())) {
-      return res.status(400).json({ success: false, message: "date must be a valid YYYY-MM-DD" });
-    }
-
-    // sublead/member always get personal scope, regardless of what they pass.
-    const canScopeTeam = ["admin", "manager"].includes(req.user.role);
-    const scope = canScopeTeam && req.query.scope === "personal" ? "personal" : canScopeTeam ? "team" : "personal";
-
-    let ids;
-    if (scope === "personal") {
-      ids = [req.user._id];
-    } else {
-      const reportFilter =
-        req.user.role === "admin"
-          ? { role: { $ne: "admin" }, isActive: true }
-          : { reportingManager: req.user._id, isActive: true };
-      const reports = await User.find(reportFilter).select("name");
-      ids = reports.map((r) => r._id);
-    }
-
-    const [tasks, modules, upcomingTasks, upcomingModules] = await Promise.all([
-      Task.find({
-        assignees: { $in: ids },
-        status: "completed",
-        updatedAt: { $gte: dayStart, $lte: dayEnd },
-      }).populate("assignees", "name"),
-      ProjectModule.find({
-        assignees: { $in: ids },
-        status: "completed",
-        updatedAt: { $gte: dayStart, $lte: dayEnd },
-      }).populate("assignees", "name"),
-      Task.find({
-        assignees: { $in: ids },
-        status: { $ne: "completed" },
-        $or: [{ deadline: { $gte: dayEnd } }, { deadline: null }],
-      }).populate("assignees", "name"),
-      ProjectModule.find({
-        assignees: { $in: ids },
-        status: { $nin: ["completed", "cancelled"] },
-      }).populate("assignees", "name"),
-    ]);
-
-    const bullets = (items, empty) => (items.length ? items.map((i) => `- ${i}`).join("\n") : `- ${empty}`);
-
-    const taskLines = bullets(
-      tasks.map((t) => `${t.assignees.map((a) => a.name).join(", ") || "Unassigned"}: ${t.title}`),
-      "None"
-    );
-    const moduleLines = bullets(
-      modules.map((m) => `${m.assignees.map((a) => a.name).join(", ") || "Unassigned"}: ${m.name}`),
-      "None"
-    );
-    const todoLines = bullets(
-      [
-        ...upcomingTasks.map((t) => `${t.assignees.map((a) => a.name).join(", ") || "Unassigned"}: ${t.title}`),
-        ...upcomingModules.map((m) => `${m.assignees.map((a) => a.name).join(", ") || "Unassigned"}: ${m.name}`),
-      ],
-      "Nothing upcoming"
-    );
-
-    const text = [
-      "Work log",
-      `Date: ${fmtDate(dayStart)}`,
-      `Team Leader: ${req.user.name}`,
-      "",
-      "Tasks:",
-      taskLines,
-      "",
-      "Modules:",
-      moduleLines,
-      "",
-      "Todo:",
-      todoLines,
-    ].join("\n");
-
-    return res.json({ success: true, message: "Work log generated", data: { date: day, text } });
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ success: false, message: "Something went wrong" });
-  }
-};

@@ -3,6 +3,8 @@ import User from "../models/User.js";
 import Task from "../models/Task.js";
 import { recordActivity, notify } from "../utils/record.js";
 import { paginationParams, paginationMeta } from "../utils/pagination.js";
+import { localDay } from "./notificationController.js";
+import { aiConfigured, generateText } from "../services/gemini.js";
 
 const SUBLEAD_PLUS = ["admin", "manager", "sublead"];
 
@@ -183,6 +185,76 @@ export const getFollowUpSuggestion = async (req, res) => {
       message: "Suggestion fetched",
       data: { yesterdayCompleted },
     });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: "Something went wrong" });
+  }
+};
+
+const fmtDate = (d) => d.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+
+const bulletLines = (text, empty) => {
+  const lines = (text || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines.length ? lines.map((line) => `- ${line}`).join("\n") : `- ${empty}`;
+};
+
+// Personal EOD work log — gated on today's own evening follow-up being
+// submitted, since it's generated from that submission's tomorrow-plan.
+export const workLog = async (req, res) => {
+  try {
+    const today = localDay(new Date());
+    const eveningFollowUp = await FollowUp.findOne({ user: req.user._id, date: today, type: "evening" });
+    if (!eveningFollowUp || eveningFollowUp.status === "draft") {
+      return res.status(403).json({ success: false, message: "Submit your evening follow-up first" });
+    }
+
+    const { start: dayStart, end: dayEnd } = dayBoundsFor(today);
+    const tasks = await Task.find({
+      assignees: req.user._id,
+      status: "completed",
+      updatedAt: { $gte: dayStart, $lte: dayEnd },
+    }).populate("module", "name");
+
+    const taskLines = tasks.length
+      ? tasks.map((t) => `- ${t.title}${t.module ? ` (${t.module.name})` : ""}`).join("\n")
+      : "- None";
+
+    const rawText = [
+      "Work log",
+      `Date : ${fmtDate(dayStart)}`,
+      `Team Leader : ${req.user.name}`,
+      "",
+      "Tasks :",
+      taskLines,
+      "",
+      "Todo :",
+      bulletLines(eveningFollowUp.evening.tomorrowPlan, "Nothing planned yet"),
+    ].join("\n");
+
+    let text = rawText;
+    if (aiConfigured()) {
+      try {
+        text = await generateText(
+          [
+            "Rewrite this end-of-day work log so it reads clearly and professionally.",
+            'Keep the exact structure: the "Work log" title, "Date :" line, "Team Leader :" line, a blank line, a "Tasks :" section, a blank line, then a "Todo :" section — same headings, same order, same "-" bullet style.',
+            "Do not invent tasks or plans that aren't listed below, and do not drop any of them.",
+            "Do not add any preamble, commentary, or markdown formatting — plain text only.",
+            "",
+            rawText,
+          ].join("\n")
+        );
+      } catch (error) {
+        // Enhancement is a nice-to-have — never let an AI hiccup block a work log that already exists.
+        console.error("work-log AI enhancement failed, using raw text:", error.response?.data || error.message);
+        text = rawText;
+      }
+    }
+
+    return res.json({ success: true, message: "Work log generated", data: { date: today, text } });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ success: false, message: "Something went wrong" });

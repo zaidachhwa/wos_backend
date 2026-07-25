@@ -38,7 +38,7 @@ const taskSchema = new mongoose.Schema(
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     approvalStatus: { type: String, enum: TASK_APPROVAL_STATUSES, default: "not_required" },
     approvalComment: { type: String, default: "" },
-    priority: { type: String, enum: PRIORITIES, default: "medium" },
+    priority: { type: String, enum: PRIORITIES, default: "low" },
     status: { type: String, enum: TASK_STATUSES, default: "backlog" },
     estimatedHours: { type: Number, default: null },
     actualHours: { type: Number, default: null },

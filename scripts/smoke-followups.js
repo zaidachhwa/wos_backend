@@ -163,6 +163,49 @@ const run = async () => {
   );
   assert.equal(reviewDraftForbidden.status, 409, "cannot review a draft follow-up");
 
+  // --- EOD work log: gated on today's own evening submission, no names, tasks+modules, tomorrow-plan todo ---
+
+  const gated = await axios.get(`${BASE}/followups/work-log`, { ...secondReport.auth, validateStatus: () => true });
+  assert.equal(gated.status, 403, "work log is blocked before the evening follow-up is submitted");
+
+  const project = await axios.post(
+    `${BASE}/projects`,
+    { name: `Smoke Followups ${Date.now()}`, manager: manager.userId, members: [secondReport.userId] },
+    manager.auth
+  );
+  const projectId = project.data.data.project._id;
+
+  const moduleRes = await axios.post(`${BASE}/projects/${projectId}/modules`, { name: "Onboarding" }, manager.auth);
+  const moduleId = moduleRes.data.data.module._id;
+
+  const task = await axios.post(
+    `${BASE}/tasks`,
+    { project: projectId, module: moduleId, title: "Wire up SSO", assignees: [secondReport.userId] },
+    manager.auth
+  );
+  await axios.patch(`${BASE}/tasks/${task.data.data.task._id}`, { status: "completed" }, secondReport.auth);
+
+  const eveningSubmit = await axios.post(
+    `${BASE}/followups`,
+    {
+      date: today,
+      type: "evening",
+      data: { completedWork: "wip", tomorrowPlan: "Finish onboarding flow\nReview PR #42" },
+      submit: true,
+    },
+    secondReport.auth
+  );
+  assert.equal(eveningSubmit.status, 200, "second report submits their evening follow-up");
+
+  const log = await axios.get(`${BASE}/followups/work-log`, secondReport.auth);
+  assert.equal(log.status, 200, "work log unlocks right after the evening submission");
+  const text = log.data.data.text;
+  assert.match(text, /^Work log/, "starts with the Work log title");
+  assert.match(text, /Team Leader : Smoke member/, "labeled with the submitter's name, not a task-by-task roster");
+  assert.match(text, /Tasks :\n- Wire up SSO \(Onboarding\)/, "completed task is shown with its module, no assignee name");
+  assert.match(text, /Todo :\n- Finish onboarding flow\n- Review PR #42/, "todo comes from tomorrow's plan, one bullet per line");
+  assert.ok(!text.includes("Smoke member:"), "no more 'name: task' prefixing");
+
   console.log("smoke-followups: all checks passed");
 };
 
