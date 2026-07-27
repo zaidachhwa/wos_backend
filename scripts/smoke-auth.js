@@ -61,6 +61,20 @@ const run = async () => {
   );
   assert.equal(afterLogout.status, 401, "refresh rejected after logout");
 
+  const missingCredential = await axios.post(
+    `${BASE}/auth/google`,
+    {},
+    { validateStatus: () => true }
+  );
+  assert.equal(missingCredential.status, 400, "google login without a credential is rejected");
+
+  const badCredential = await axios.post(
+    `${BASE}/auth/google`,
+    { credential: "not-a-real-google-token" },
+    { validateStatus: () => true }
+  );
+  assert.equal(badCredential.status, 401, "google login with an unverifiable token is rejected");
+
   console.log("smoke-auth: all checks passed");
 };
 

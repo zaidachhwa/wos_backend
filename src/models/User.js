@@ -13,6 +13,13 @@ const userSchema = new mongoose.Schema(
     team: { type: mongoose.Schema.Types.ObjectId, ref: "Team", default: null },
     reportingManager: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     isActive: { type: Boolean, default: true },
+    // Set the first time a matching account signs in via Google. Unique +
+    // sparse so multiple users can each have no googleId without violating
+    // the unique index — no `default` here on purpose: a sparse index only
+    // excludes documents where the field is truly absent, not where it's
+    // explicitly null, so defaulting to null would defeat the sparseness
+    // after the second such user is created.
+    googleId: { type: String, unique: true, sparse: true },
     refreshToken: { type: String, default: null, select: false },
     // Grace-period slot: keeps the previous refresh token valid for a short
     // window after rotation so a raced/duplicate refresh (2nd tab, retried

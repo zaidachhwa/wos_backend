@@ -1,8 +1,11 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import { OAuth2Client } from "google-auth-library";
 
 import User from "../models/User.js";
 import { signAccessToken, signRefreshToken } from "../utils/tokens.js";
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // Set COOKIE_CROSS_SITE=true when the frontend and API are on different
 // registrable domains (e.g. app.example.com vs api.otherdomain.com) — a
@@ -35,6 +38,54 @@ export const login = async (req, res) => {
     if (!user || !user.isActive || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
+    const accessToken = signAccessToken(user);
+    const refreshToken = signRefreshToken(user);
+    user.refreshToken = refreshToken;
+    user.previousRefreshToken = null;
+    user.previousRefreshTokenExpiresAt = null;
+    await user.save();
+    res.cookie("refreshToken", refreshToken, refreshCookieOptions);
+    const safeUser = await User.findById(user._id).populate("department team");
+    return res.json({ success: true, message: "Logged in", data: { user: safeUser, accessToken } });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: "Something went wrong" });
+  }
+};
+
+export const loginWithGoogle = async (req, res) => {
+  try {
+    const { credential } = req.body;
+    if (!credential) {
+      return res.status(400).json({ success: false, message: "Google credential is required" });
+    }
+
+    let googlePayload;
+    try {
+      const ticket = await googleClient.verifyIdToken({
+        idToken: credential,
+        audience: process.env.GOOGLE_CLIENT_ID,
+      });
+      googlePayload = ticket.getPayload();
+    } catch {
+      return res.status(401).json({ success: false, message: "Invalid Google token" });
+    }
+
+    const email = String(googlePayload.email || "").toLowerCase();
+    const user = await User.findOne({ email });
+    if (!user || !user.isActive) {
+      return res.status(404).json({
+        success: false,
+        message: "No WorkOS account found for this Google email. Ask an admin to invite you.",
+      });
+    }
+
+    // Auto-link on first Google sign-in — one account per email, either
+    // login method works afterward.
+    if (!user.googleId) {
+      user.googleId = googlePayload.sub;
+    }
+
     const accessToken = signAccessToken(user);
     const refreshToken = signRefreshToken(user);
     user.refreshToken = refreshToken;
