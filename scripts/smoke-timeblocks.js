@@ -158,9 +158,9 @@ const run = async () => {
   );
   assert.equal(farTask.status, 201, "far-deadline task created");
 
-  // Deadline in the past, created in the past (simulated by a deadline before
-  // the window's start) — must NOT appear, guarding against the overlap query
-  // accidentally dropping the deadline lower bound.
+  // Deadline in the past — must NOT appear, guarding against the overlap query
+  // accidentally dropping the deadline lower bound. (Task is created now;
+  // only `deadline` is backdated.)
   const pastTask = await axios.post(
     `${BASE}/tasks`,
     {
