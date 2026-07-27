@@ -10,7 +10,14 @@ const collectItems = async (userId, fromDate, toDate) => {
 
   const [blocks, tasks, projects, followUps] = await Promise.all([
     TimeBlock.find({ user: userId, start: range }),
-    Task.find({ assignees: userId, deadline: range }),
+    // Overlap query, not "deadline falls in range": a task created today with
+    // a deadline weeks out must still show on *this* week's board even though
+    // its deadline isn't in this week — the visible span is [createdAt, deadline].
+    Task.find({
+      assignees: userId,
+      deadline: { $gte: fromDate },
+      createdAt: { $lte: toDate },
+    }).populate("project", "name"),
     Project.find({
       $or: [{ manager: userId }, { members: userId }],
       deadline: range,
@@ -47,6 +54,12 @@ const collectItems = async (userId, fromDate, toDate) => {
       start: t.deadline,
       startTime: t.startTime || null,
       endTime: t.endTime || null,
+      // The frontend uses createdAt as the span's start day; a task shown
+      // less than a day after creation renders as today's single-point event.
+      spanStart: t.createdAt,
+      label: t.labels?.[0] || null,
+      projectName: t.project?.name || null,
+      status: t.status,
       link: "/tasks",
     });
   }

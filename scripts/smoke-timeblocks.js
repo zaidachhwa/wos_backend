@@ -137,10 +137,41 @@ const run = async () => {
       title: "Calendar smoke task",
       assignees: [member.userId],
       deadline: iso(5),
+      labels: ["Sprint 12"],
     },
     manager.auth
   );
   assert.equal(task.status, 201, "task created for calendar smoke");
+
+  // Deadline ten days out — outside the narrow window queried below — but the
+  // task was just created, so its span [createdAt, deadline] still overlaps
+  // the window and it must appear.
+  const farTask = await axios.post(
+    `${BASE}/tasks`,
+    {
+      project: project.data.data.project._id,
+      title: "Far-deadline smoke task",
+      assignees: [member.userId],
+      deadline: iso(240),
+    },
+    manager.auth
+  );
+  assert.equal(farTask.status, 201, "far-deadline task created");
+
+  // Deadline in the past, created in the past (simulated by a deadline before
+  // the window's start) — must NOT appear, guarding against the overlap query
+  // accidentally dropping the deadline lower bound.
+  const pastTask = await axios.post(
+    `${BASE}/tasks`,
+    {
+      project: project.data.data.project._id,
+      title: "Past-deadline smoke task",
+      assignees: [member.userId],
+      deadline: iso(-48),
+    },
+    manager.auth
+  );
+  assert.equal(pastTask.status, 201, "past-deadline task created");
 
   const calendar = await axios.get(
     `${BASE}/calendar?from=${iso(-24)}&to=${iso(24)}`,
@@ -152,9 +183,20 @@ const run = async () => {
     items.some((i) => i.type === "timeblock" && i.id === ownBlock.data.data.timeBlock._id),
     "calendar includes the member's time block"
   );
+  const taskItem = items.find((i) => i.type === "task_deadline" && i.id === task.data.data.task._id);
+  assert.ok(taskItem, "calendar includes the assigned task's deadline");
+  assert.equal(taskItem.label, "Sprint 12", "task_deadline item carries the task's first label");
+  assert.equal(taskItem.projectName, "Calendar smoke project", "task_deadline item carries the project's name");
+  assert.equal(taskItem.status, "backlog", "task_deadline item carries the task's status");
+  assert.ok(taskItem.spanStart, "task_deadline item carries a spanStart");
+
   assert.ok(
-    items.some((i) => i.type === "task_deadline" && i.id === task.data.data.task._id),
-    "calendar includes the assigned task's deadline"
+    items.some((i) => i.type === "task_deadline" && i.id === farTask.data.data.task._id),
+    "far-deadline task still appears — its span overlaps the narrow query window"
+  );
+  assert.ok(
+    !items.some((i) => i.type === "task_deadline" && i.id === pastTask.data.data.task._id),
+    "past-deadline task does not appear — its span ended before the query window"
   );
 
   const calendarMissingParams = await axios.get(`${BASE}/calendar`, {
