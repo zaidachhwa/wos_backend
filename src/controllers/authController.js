@@ -71,6 +71,10 @@ export const loginWithGoogle = async (req, res) => {
       return res.status(401).json({ success: false, message: "Invalid Google token" });
     }
 
+    if (!googlePayload.email_verified) {
+      return res.status(401).json({ success: false, message: "Google account email is not verified" });
+    }
+
     const email = String(googlePayload.email || "").toLowerCase();
     const user = await User.findOne({ email });
     if (!user || !user.isActive) {
