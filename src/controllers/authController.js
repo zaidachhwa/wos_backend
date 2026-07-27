@@ -5,7 +5,7 @@ import { OAuth2Client } from "google-auth-library";
 import User from "../models/User.js";
 import { signAccessToken, signRefreshToken } from "../utils/tokens.js";
 
-const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const googleClient = new OAuth2Client();
 
 // Set COOKIE_CROSS_SITE=true when the frontend and API are on different
 // registrable domains (e.g. app.example.com vs api.otherdomain.com) — a
@@ -55,6 +55,10 @@ export const login = async (req, res) => {
 
 export const loginWithGoogle = async (req, res) => {
   try {
+    if (!process.env.GOOGLE_CLIENT_ID) {
+      return res.status(503).json({ success: false, message: "Google sign-in is not configured" });
+    }
+
     const { credential } = req.body;
     if (!credential) {
       return res.status(400).json({ success: false, message: "Google credential is required" });
@@ -71,7 +75,7 @@ export const loginWithGoogle = async (req, res) => {
       return res.status(401).json({ success: false, message: "Invalid Google token" });
     }
 
-    if (!googlePayload.email_verified) {
+    if (googlePayload.email_verified !== true && googlePayload.email_verified !== "true") {
       return res.status(401).json({ success: false, message: "Google account email is not verified" });
     }
 
