@@ -20,9 +20,9 @@ const router = Router();
 router.use(authenticate);
 
 router.get("/", listTasks);
-router.post("/", authorize("admin", "manager", "sublead", "member"), validateTaskCreate, createTask);
+router.post("/", authorize("admin", "manager", "subadmin", "sublead", "member"), validateTaskCreate, createTask);
 // Must come before "/:id" — otherwise Express matches "bulk" as the :id param.
-router.patch("/bulk", authorize("admin", "manager", "sublead"), bulkUpdateTasks);
+router.patch("/bulk", authorize("admin", "manager", "subadmin", "sublead"), bulkUpdateTasks);
 router.get("/:id", getTask);
 // role check is "assignee: status/actualHours/subtasks only, sublead+: everything"
 // — needs the loaded task/project, so it's enforced inside the controller.

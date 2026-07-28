@@ -274,6 +274,50 @@ const run = async () => {
   });
   assert.equal(deptDeleteForbidden.status, 403, "subadmin cannot delete their own managed department");
 
+  // --- subadmin: project visibility follows manager/member overlap ---------
+
+  const projectInScope = await axios.post(
+    `${BASE}/projects`,
+    { name: `Subadmin Smoke Project ${Date.now()}`, manager: memberA.userId, type: "internal" },
+    subadmin.auth
+  );
+  assert.equal(projectInScope.status, 201, "subadmin creates a project managed by memberA (in scope)");
+  const projectInScopeId = projectInScope.data.data.project._id;
+
+  const projectOutOfScope = await axios.post(
+    `${BASE}/projects`,
+    { name: `Outside Project ${Date.now()}`, manager: outsider.userId, type: "internal" },
+    adminAuth
+  );
+  const projectOutOfScopeId = projectOutOfScope.data.data.project._id;
+
+  const projectListAsSubadmin = await axios.get(`${BASE}/projects`, subadmin.auth);
+  const visibleProjectIds = projectListAsSubadmin.data.data.projects.map((p) => String(p._id));
+  assert.ok(visibleProjectIds.includes(String(projectInScopeId)), "subadmin sees the in-scope project");
+  assert.ok(!visibleProjectIds.includes(String(projectOutOfScopeId)), "subadmin does not see the out-of-scope project");
+
+  const getOutOfScopeProject = await axios.get(`${BASE}/projects/${projectOutOfScopeId}`, {
+    ...subadmin.auth,
+    validateStatus: () => true,
+  });
+  assert.equal(getOutOfScopeProject.status, 403, "subadmin is forbidden from fetching the out-of-scope project directly");
+
+  // --- subadmin: task creation/visibility follows the same project scope ---
+
+  const taskInScope = await axios.post(
+    `${BASE}/tasks`,
+    { project: projectInScopeId, title: "Subadmin smoke task", assignees: [memberA.userId] },
+    subadmin.auth
+  );
+  assert.equal(taskInScope.status, 201, "subadmin creates a task in an in-scope project");
+
+  const taskOutOfScope = await axios.post(
+    `${BASE}/tasks`,
+    { project: projectOutOfScopeId, title: "Should fail", assignees: [outsider.userId] },
+    { ...subadmin.auth, validateStatus: () => true }
+  );
+  assert.equal(taskOutOfScope.status, 403, "subadmin cannot create a task in an out-of-scope project");
+
   console.log("smoke-subadmin: all checks passed");
 };
 

@@ -20,7 +20,7 @@ const router = Router();
 router.use(authenticate);
 
 router.get("/", listProjects);
-router.post("/", authorize("admin", "manager"), validateProjectCreate, createProject);
+router.post("/", authorize("admin", "manager", "subadmin"), validateProjectCreate, createProject);
 router.get("/:id", getProject);
 // role check is "admin|manager OR the project's manager" — needs the loaded
 // project, so it's enforced inside the controller rather than here.
@@ -30,11 +30,11 @@ router.delete("/:id", authorize("admin"), deleteProject);
 router.get("/:projectId/modules", listModules);
 router.post(
   "/:projectId/modules",
-  authorize("admin", "manager", "sublead"),
+  authorize("admin", "manager", "subadmin", "sublead"),
   validateModuleCreate,
   createModule
 );
-router.patch("/:projectId/modules/:id", authorize("admin", "manager", "sublead"), updateModule);
+router.patch("/:projectId/modules/:id", authorize("admin", "manager", "subadmin", "sublead"), updateModule);
 router.delete("/:projectId/modules/:id", authorize("admin"), deleteModule);
 
 export default router;

@@ -9,7 +9,7 @@ import { paginationParams, paginationMeta } from "../utils/pagination.js";
 import { validateTimeSlot } from "../utils/taskDates.js";
 import { maxBonusFor } from "../utils/points.js";
 
-const SUBLEAD_PLUS = ["admin", "manager", "sublead"];
+const SUBLEAD_PLUS = ["admin", "manager", "subadmin", "sublead"];
 
 const FULL_FIELDS = [
   "title",
