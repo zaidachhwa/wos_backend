@@ -62,6 +62,11 @@ export const deleteDepartment = async (req, res) => {
 export const createTeam = async (req, res) => {
   try {
     const { name, department } = req.body;
+    if (req.user.role === "subadmin" && String(department) !== String(req.user.managedDepartment)) {
+      return res
+        .status(403)
+        .json({ success: false, message: "You may only create teams in your managed department" });
+    }
     const dept = await Department.findById(department);
     if (!dept) {
       return res
@@ -87,6 +92,24 @@ export const listTeams = async (req, res) => {
 
 export const updateTeam = async (req, res) => {
   try {
+    const existing = await Team.findById(req.params.id);
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "Team not found" });
+    }
+    if (req.user.role === "subadmin") {
+      if (String(existing.department) !== String(req.user.managedDepartment)) {
+        return res.status(404).json({ success: false, message: "Team not found" });
+      }
+      if (
+        "department" in req.body &&
+        (!req.body.department || String(req.body.department) !== String(req.user.managedDepartment))
+      ) {
+        return res
+          .status(403)
+          .json({ success: false, message: "You may only manage teams in your managed department" });
+      }
+    }
+
     const updates = {};
     for (const key of ["name", "department"]) {
       if (key in req.body) updates[key] = req.body[key];
@@ -103,9 +126,6 @@ export const updateTeam = async (req, res) => {
       new: true,
       runValidators: true,
     });
-    if (!team) {
-      return res.status(404).json({ success: false, message: "Team not found" });
-    }
     return res.json({ success: true, message: "Team updated", data: { team } });
   } catch (error) {
     return res.status(400).json({ success: false, message: error.message });
@@ -114,10 +134,17 @@ export const updateTeam = async (req, res) => {
 
 export const deleteTeam = async (req, res) => {
   try {
-    const team = await Team.findByIdAndDelete(req.params.id);
-    if (!team) {
+    const existing = await Team.findById(req.params.id);
+    if (!existing) {
       return res.status(404).json({ success: false, message: "Team not found" });
     }
+    if (
+      req.user.role === "subadmin" &&
+      String(existing.department) !== String(req.user.managedDepartment)
+    ) {
+      return res.status(404).json({ success: false, message: "Team not found" });
+    }
+    const team = await Team.findByIdAndDelete(req.params.id);
     return res.json({ success: true, message: "Team deleted", data: null });
   } catch (error) {
     console.error(error);

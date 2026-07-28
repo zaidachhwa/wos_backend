@@ -201,6 +201,79 @@ const run = async () => {
   );
   assert.equal(subadminMissingDept.status, 400, "creating a subadmin without managedDepartment is rejected");
 
+  // --- subadmin: team CRUD scoped to their managed department --------------
+
+  const teamCreateInScope = await axios.post(
+    `${BASE}/teams`,
+    { name: `Subadmin Team ${Date.now()}`, department: deptId },
+    subadmin.auth
+  );
+  assert.equal(teamCreateInScope.status, 201, "subadmin creates a team in their managed department");
+  const subadminTeamId = teamCreateInScope.data.data.team._id;
+
+  const teamCreateOutOfScope = await axios.post(
+    `${BASE}/teams`,
+    { name: "Should fail", department: otherDeptId },
+    { ...subadmin.auth, validateStatus: () => true }
+  );
+  assert.equal(teamCreateOutOfScope.status, 403, "subadmin cannot create a team in a different department");
+
+  const teamUpdateInScope = await axios.patch(
+    `${BASE}/teams/${subadminTeamId}`,
+    { name: "Renamed by subadmin" },
+    subadmin.auth
+  );
+  assert.equal(teamUpdateInScope.status, 200, "subadmin renames a team in their managed department");
+
+  // --- adversarial: falsy department values must not bypass the scope check
+  // (Task 2 had a `req.body.team &&` truthy-check bypass on null/""/0; confirm
+  // the equivalent `req.body.department` check here is gated on presence, not
+  // truthiness.)
+
+  for (const badValue of [null, "", 0, false]) {
+    const falsyDeptAttempt = await axios.patch(
+      `${BASE}/teams/${subadminTeamId}`,
+      { department: badValue },
+      { ...subadmin.auth, validateStatus: () => true }
+    );
+    assert.equal(
+      falsyDeptAttempt.status,
+      403,
+      `subadmin cannot set department to falsy value ${JSON.stringify(badValue)} on a managed team`
+    );
+  }
+
+  const teamUpdateOutOfScope = await axios.patch(
+    `${BASE}/teams/${otherTeamId}`,
+    { name: "Should fail" },
+    { ...subadmin.auth, validateStatus: () => true }
+  );
+  assert.equal(teamUpdateOutOfScope.status, 404, "subadmin cannot update a team in a different department");
+
+  const teamDeleteOutOfScope = await axios.delete(`${BASE}/teams/${otherTeamId}`, {
+    ...subadmin.auth,
+    validateStatus: () => true,
+  });
+  assert.equal(teamDeleteOutOfScope.status, 404, "subadmin cannot delete a team in a different department");
+
+  const teamDeleteInScope = await axios.delete(`${BASE}/teams/${subadminTeamId}`, subadmin.auth);
+  assert.equal(teamDeleteInScope.status, 200, "subadmin deletes a team in their managed department");
+
+  // --- subadmin: Department CRUD stays forbidden ----------------------------
+
+  const deptCreateForbidden = await axios.post(
+    `${BASE}/departments`,
+    { name: "Should fail" },
+    { ...subadmin.auth, validateStatus: () => true }
+  );
+  assert.equal(deptCreateForbidden.status, 403, "subadmin cannot create a department");
+
+  const deptDeleteForbidden = await axios.delete(`${BASE}/departments/${deptId}`, {
+    ...subadmin.auth,
+    validateStatus: () => true,
+  });
+  assert.equal(deptDeleteForbidden.status, 403, "subadmin cannot delete their own managed department");
+
   console.log("smoke-subadmin: all checks passed");
 };
 
