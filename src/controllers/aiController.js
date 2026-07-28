@@ -8,6 +8,7 @@ import { canViewProject, visibilityFilter } from "./projectController.js";
 import { localDay } from "./notificationController.js";
 import { aiConfigured, generateText, generateJson } from "../services/gemini.js";
 import { isTaskOverdue } from "../utils/taskDates.js";
+import { reportScopeFilter } from "../utils/subadminScope.js";
 
 export const requireAI = (req, res, next) => {
   if (!aiConfigured()) {
@@ -58,10 +59,7 @@ const dayContext = async (user) => {
 };
 
 const workloadContext = async (user) => {
-  const reportFilter =
-    user.role === "admin"
-      ? { role: { $ne: "admin" }, isActive: true }
-      : { reportingManager: user._id, isActive: true };
+  const reportFilter = await reportScopeFilter(user);
   const reports = await User.find(reportFilter).select("name role");
   const openTasks = await Task.find({
     assignees: { $in: reports.map((r) => r._id) },
@@ -173,12 +171,9 @@ export const chat = async (req, res) => {
       `Their open tasks:\n${ownTasks.map(fmtTask).join("\n") || "- none"}`,
     ];
 
-    if (["admin", "manager", "sublead"].includes(req.user.role)) {
+    if (["admin", "manager", "subadmin", "sublead"].includes(req.user.role)) {
       const today = localDay(new Date());
-      const reportFilter =
-        req.user.role === "admin"
-          ? { role: { $ne: "admin" }, isActive: true }
-          : { reportingManager: req.user._id, isActive: true };
+      const reportFilter = await reportScopeFilter(req.user);
       const reports = await User.find(reportFilter).select("name role");
       const reportIds = reports.map((r) => r._id);
       const [followUps, blocked] = await Promise.all([

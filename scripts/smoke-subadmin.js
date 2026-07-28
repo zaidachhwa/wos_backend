@@ -409,6 +409,20 @@ const run = async () => {
     "subadmin cannot use ?team= to view a team outside their department"
   );
 
+  // --- subadmin: AI workload analysis is reachable (scoping is internal to
+  // the prompt context sent to Gemini, not independently observable from the
+  // response text — this just confirms the route/role-gate wiring is correct) --
+
+  const workloadAsSubadmin = await axios.post(
+    `${BASE}/ai/workload`,
+    {},
+    { ...subadmin.auth, validateStatus: () => true }
+  );
+  assert.ok(
+    [200, 503].includes(workloadAsSubadmin.status),
+    "subadmin can reach the AI workload endpoint (200 if Gemini is configured, 503 if AI isn't configured — both prove the role gate didn't 403)"
+  );
+
   console.log("smoke-subadmin: all checks passed");
 };
 
