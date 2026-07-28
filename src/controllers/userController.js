@@ -2,6 +2,7 @@ import bcrypt from "bcrypt";
 
 import User from "../models/User.js";
 import { paginationParams, paginationMeta } from "../utils/pagination.js";
+import { getManagedTeamIds, getManagedUserIds } from "../utils/subadminScope.js";
 
 // Would this update deactivate or demote the last remaining active admin,
 // locking everyone out of admin-only actions? Checked before isActive:false
@@ -20,8 +21,21 @@ const wouldRemoveLastAdmin = async (target, updates) => {
 
 export const createUser = async (req, res) => {
   try {
-    const { name, email, password, role, designation, department, team, reportingManager } =
+    const { name, email, password, role, designation, department, team, reportingManager, managedDepartment } =
       req.body;
+
+    if (req.user.role === "subadmin") {
+      if (["admin", "subadmin"].includes(role)) {
+        return res.status(403).json({ success: false, message: "Forbidden" });
+      }
+      const managedTeamIds = (await getManagedTeamIds(req.user.managedDepartment)).map(String);
+      if (!team || !managedTeamIds.includes(String(team))) {
+        return res
+          .status(403)
+          .json({ success: false, message: "team must be one of your managed teams" });
+      }
+    }
+
     const existing = await User.findOne({ email: String(email).toLowerCase() });
     if (existing) {
       return res.status(409).json({ success: false, message: "Email already in use" });
@@ -32,9 +46,10 @@ export const createUser = async (req, res) => {
       password: await bcrypt.hash(password, 10),
       role,
       designation,
-      department: department || null,
+      department: req.user.role === "subadmin" ? req.user.managedDepartment : department || null,
       team: team || null,
       reportingManager: reportingManager || null,
+      managedDepartment: role === "subadmin" ? managedDepartment : null,
     });
     const safeUser = await User.findById(user._id);
     return res.status(201).json({ success: true, message: "User created", data: { user: safeUser } });
@@ -49,8 +64,12 @@ export const createUser = async (req, res) => {
 export const listUsers = async (req, res) => {
   try {
     const pageParams = paginationParams(req.query);
-    const total = await User.countDocuments();
-    let query = User.find().populate("department team reportingManager", "name email");
+    const baseFilter =
+      req.user.role === "subadmin"
+        ? { _id: { $in: await getManagedUserIds(req.user) } }
+        : {};
+    const total = await User.countDocuments(baseFilter);
+    let query = User.find(baseFilter).populate("department team reportingManager", "name email");
     if (pageParams) query = query.skip(pageParams.skip).limit(pageParams.limit);
     const users = await query;
     return res.json({
@@ -96,6 +115,28 @@ export const updateUser = async (req, res) => {
     if (!target) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
+
+    if (req.user.role === "subadmin") {
+      if (["admin", "subadmin"].includes(target.role)) {
+        return res.status(403).json({ success: false, message: "Forbidden" });
+      }
+      if (updates.role && ["admin", "subadmin"].includes(updates.role)) {
+        return res.status(403).json({ success: false, message: "Forbidden" });
+      }
+      const managedUserIds = (await getManagedUserIds(req.user)).map(String);
+      if (!managedUserIds.includes(String(target._id))) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+      if (updates.team) {
+        const managedTeamIds = (await getManagedTeamIds(req.user.managedDepartment)).map(String);
+        if (!managedTeamIds.includes(String(updates.team))) {
+          return res
+            .status(403)
+            .json({ success: false, message: "team must be one of your managed teams" });
+        }
+      }
+    }
+
     if (await wouldRemoveLastAdmin(target, updates)) {
       return res
         .status(400)
@@ -117,6 +158,17 @@ export const deleteUser = async (req, res) => {
     if (!target) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
+
+    if (req.user.role === "subadmin") {
+      if (["admin", "subadmin"].includes(target.role)) {
+        return res.status(403).json({ success: false, message: "Forbidden" });
+      }
+      const managedUserIds = (await getManagedUserIds(req.user)).map(String);
+      if (!managedUserIds.includes(String(target._id))) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+    }
+
     if (await wouldRemoveLastAdmin(target, { isActive: false })) {
       return res
         .status(400)

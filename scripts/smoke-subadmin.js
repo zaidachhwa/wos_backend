@@ -63,6 +63,109 @@ const run = async () => {
   assert.ok(ids.includes(memberB.userId), "fixture memberB exists");
   assert.ok(ids.includes(outsider.userId), "fixture outsider exists in a different department");
 
+  // --- subadmin: list is restricted to managed department's users ----------
+
+  const listAsSubadmin = await axios.get(`${BASE}/users`, subadmin.auth);
+  assert.equal(listAsSubadmin.status, 200, "subadmin can list users");
+  const listedIds = listAsSubadmin.data.data.users.map((u) => String(u._id));
+  assert.ok(listedIds.includes(memberA.userId), "subadmin's list includes memberA (their department)");
+  assert.ok(!listedIds.includes(outsider.userId), "subadmin's list excludes outsider (different department)");
+  assert.ok(!listedIds.some((id) => id === String(subadmin.userId)), "subadmin's list excludes admin/subadmin accounts")
+
+  // --- subadmin: create user in a managed team OK, outside team forbidden --
+
+  const createInScope = await axios.post(
+    `${BASE}/users`,
+    {
+      name: "Subadmin-created",
+      email: `subadmincreated+${Date.now()}@wos.local`,
+      password: "smokepass123",
+      role: "member",
+      team: teamAId,
+    },
+    subadmin.auth
+  );
+  assert.equal(createInScope.status, 201, "subadmin creates a user on their own managed team");
+
+  const createOutOfScope = await axios.post(
+    `${BASE}/users`,
+    {
+      name: "Should fail",
+      email: `shouldfail+${Date.now()}@wos.local`,
+      password: "smokepass123",
+      role: "member",
+      team: otherTeamId,
+    },
+    { ...subadmin.auth, validateStatus: () => true }
+  );
+  assert.equal(createOutOfScope.status, 403, "subadmin cannot create a user on a team outside their department");
+
+  const createAdminForbidden = await axios.post(
+    `${BASE}/users`,
+    {
+      name: "Should fail",
+      email: `shouldfail2+${Date.now()}@wos.local`,
+      password: "smokepass123",
+      role: "admin",
+      team: teamAId,
+    },
+    { ...subadmin.auth, validateStatus: () => true }
+  );
+  assert.equal(createAdminForbidden.status, 403, "subadmin cannot create a user with role admin");
+
+  // --- subadmin: update/deactivate in scope OK, out of scope forbidden -----
+
+  const updateInScope = await axios.patch(
+    `${BASE}/users/${memberA.userId}`,
+    { designation: "Updated by subadmin" },
+    subadmin.auth
+  );
+  assert.equal(updateInScope.status, 200, "subadmin updates a user in their managed department");
+
+  const updateOutOfScope = await axios.patch(
+    `${BASE}/users/${outsider.userId}`,
+    { designation: "Should fail" },
+    { ...subadmin.auth, validateStatus: () => true }
+  );
+  assert.equal(updateOutOfScope.status, 404, "subadmin cannot update a user outside their department");
+
+  const updateAdminForbidden = await axios.patch(
+    `${BASE}/users/${subadmin.userId}`,
+    { designation: "Should fail" },
+    { ...subadmin.auth, validateStatus: () => true }
+  );
+  assert.equal(updateAdminForbidden.status, 403, "subadmin cannot update another subadmin's own account");
+
+  const moveOutOfManagedTeam = await axios.patch(
+    `${BASE}/users/${memberA.userId}`,
+    { team: otherTeamId },
+    { ...subadmin.auth, validateStatus: () => true }
+  );
+  assert.equal(moveOutOfManagedTeam.status, 403, "subadmin cannot move a user to a team outside their department");
+
+  const deactivateOutOfScope = await axios.delete(`${BASE}/users/${outsider.userId}`, {
+    ...subadmin.auth,
+    validateStatus: () => true,
+  });
+  assert.equal(deactivateOutOfScope.status, 404, "subadmin cannot deactivate a user outside their department");
+
+  const deactivateInScope = await axios.delete(`${BASE}/users/${memberB.userId}`, subadmin.auth);
+  assert.equal(deactivateInScope.status, 200, "subadmin deactivates a user in their managed department");
+
+  // --- managedDepartment is required when creating a subadmin --------------
+
+  const subadminMissingDept = await axios.post(
+    `${BASE}/users`,
+    {
+      name: "Should fail",
+      email: `subadminnodept+${Date.now()}@wos.local`,
+      password: "smokepass123",
+      role: "subadmin",
+    },
+    { ...adminAuth, validateStatus: () => true }
+  );
+  assert.equal(subadminMissingDept.status, 400, "creating a subadmin without managedDepartment is rejected");
+
   console.log("smoke-subadmin: all checks passed");
 };
 

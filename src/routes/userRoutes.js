@@ -14,9 +14,9 @@ const router = Router();
 
 router.use(authenticate);
 router.get("/directory", listDirectory);
-router.post("/", authorize("admin"), validateCreateUser, createUser);
-router.get("/", authorize("admin"), listUsers);
-router.patch("/:id", authorize("admin"), updateUser);
-router.delete("/:id", authorize("admin"), deleteUser);
+router.post("/", authorize("admin", "subadmin"), validateCreateUser, createUser);
+router.get("/", authorize("admin", "subadmin"), listUsers);
+router.patch("/:id", authorize("admin", "subadmin"), updateUser);
+router.delete("/:id", authorize("admin", "subadmin"), deleteUser);
 
 export default router;
