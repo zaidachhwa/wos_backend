@@ -389,6 +389,26 @@ const run = async () => {
   assert.ok(reportUserIds.includes(memberA.userId), "subadmin's report includes memberA");
   assert.ok(!reportUserIds.includes(outsider.userId), "subadmin's report excludes outsider");
 
+  // --- subadmin: leaderboard roster restricted to the managed department ---
+
+  const leaderboardAsSubadmin = await axios.get(`${BASE}/leaderboard`, subadmin.auth);
+  assert.equal(leaderboardAsSubadmin.status, 200, "subadmin fetches the leaderboard");
+  if (!leaderboardAsSubadmin.data.data.locked) {
+    const rosterIds = leaderboardAsSubadmin.data.data.rows.map((r) => String(r.user._id));
+    assert.ok(rosterIds.includes(memberA.userId), "subadmin's leaderboard roster includes memberA");
+    assert.ok(!rosterIds.includes(outsider.userId), "subadmin's leaderboard roster excludes outsider");
+  }
+
+  const leaderboardTeamOutOfScope = await axios.get(`${BASE}/leaderboard?team=${otherTeamId}`, {
+    ...subadmin.auth,
+    validateStatus: () => true,
+  });
+  assert.ok(
+    [200, 403].includes(leaderboardTeamOutOfScope.status) &&
+      (leaderboardTeamOutOfScope.status !== 200 || leaderboardTeamOutOfScope.data.data.locked),
+    "subadmin cannot use ?team= to view a team outside their department"
+  );
+
   console.log("smoke-subadmin: all checks passed");
 };
 

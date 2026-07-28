@@ -3,6 +3,7 @@ import Task from "../models/Task.js";
 import User from "../models/User.js";
 import { pointsForCompletedTask } from "../utils/points.js";
 import { getPointsByPriority, setPointsByPriority } from "../utils/pointsConfig.js";
+import { getManagedTeamIds } from "../utils/subadminScope.js";
 
 const mondayOf = (date) => {
   const d = new Date(date);
@@ -23,7 +24,7 @@ const weekBoundsOf = (date) => {
 
 const dayStr = (d) => new Date(d).toISOString().slice(0, 10);
 
-const REPORT_ROLES = ["admin", "manager"];
+const REPORT_ROLES = ["admin", "manager", "subadmin"];
 
 export const getLeaderboard = async (req, res) => {
   try {
@@ -56,7 +57,19 @@ export const getLeaderboard = async (req, res) => {
     const { start: weekStart, end: weekEnd } = weekBoundsOf(anchor);
 
     const rosterFilter = { isActive: true, role: { $ne: "admin" } };
-    if (req.query.team) rosterFilter.team = req.query.team;
+    if (req.user.role === "subadmin") {
+      const managedTeamIds = (await getManagedTeamIds(req.user.managedDepartment)).map(String);
+      if (req.query.team) {
+        if (!managedTeamIds.includes(String(req.query.team))) {
+          return res.status(403).json({ success: false, message: "Forbidden" });
+        }
+        rosterFilter.team = req.query.team;
+      } else {
+        rosterFilter.team = { $in: managedTeamIds };
+      }
+    } else if (req.query.team) {
+      rosterFilter.team = req.query.team;
+    }
 
     const [completions, roster] = await Promise.all([
       Activity.find({
