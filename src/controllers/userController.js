@@ -98,15 +98,10 @@ export const listDirectory = async (req, res) => {
 
 export const updateUser = async (req, res) => {
   try {
-    const allowed = [
-      "name",
-      "designation",
-      "role",
-      "department",
-      "team",
-      "reportingManager",
-      "isActive",
-    ];
+    const allowed =
+      req.user.role === "subadmin"
+        ? ["name", "designation", "role", "team", "isActive"]
+        : ["name", "designation", "role", "department", "team", "reportingManager", "isActive"];
     const updates = {};
     for (const key of allowed) {
       if (key in req.body) updates[key] = req.body[key];
@@ -127,9 +122,9 @@ export const updateUser = async (req, res) => {
       if (!managedUserIds.includes(String(target._id))) {
         return res.status(404).json({ success: false, message: "User not found" });
       }
-      if (updates.team) {
+      if ("team" in updates) {
         const managedTeamIds = (await getManagedTeamIds(req.user.managedDepartment)).map(String);
-        if (!managedTeamIds.includes(String(updates.team))) {
+        if (!updates.team || !managedTeamIds.includes(String(updates.team))) {
           return res
             .status(403)
             .json({ success: false, message: "team must be one of your managed teams" });

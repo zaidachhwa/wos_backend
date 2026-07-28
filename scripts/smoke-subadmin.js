@@ -143,6 +143,41 @@ const run = async () => {
   );
   assert.equal(moveOutOfManagedTeam.status, 403, "subadmin cannot move a user to a team outside their department");
 
+  const nullTeamAttempt = await axios.patch(
+    `${BASE}/users/${memberA.userId}`,
+    { team: null },
+    { ...subadmin.auth, validateStatus: () => true }
+  );
+  assert.equal(nullTeamAttempt.status, 403, "subadmin cannot null out a managed user's team");
+
+  const departmentAttempt = await axios.patch(
+    `${BASE}/users/${memberA.userId}`,
+    { department: otherDeptId },
+    subadmin.auth
+  );
+  assert.equal(departmentAttempt.status, 200, "subadmin's department update request still succeeds (field is silently dropped)");
+  assert.equal(
+    String(departmentAttempt.data.data.user.department),
+    String(deptId),
+    "subadmin cannot change a managed user's department"
+  );
+
+  const reportingManagerAttempt = await axios.patch(
+    `${BASE}/users/${memberA.userId}`,
+    { reportingManager: subadmin.userId },
+    subadmin.auth
+  );
+  assert.equal(
+    reportingManagerAttempt.status,
+    200,
+    "subadmin's reportingManager update request still succeeds (field is silently dropped)"
+  );
+  assert.equal(
+    reportingManagerAttempt.data.data.user.reportingManager,
+    null,
+    "subadmin cannot set a managed user's reportingManager"
+  );
+
   const deactivateOutOfScope = await axios.delete(`${BASE}/users/${outsider.userId}`, {
     ...subadmin.auth,
     validateStatus: () => true,
