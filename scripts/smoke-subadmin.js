@@ -318,6 +318,57 @@ const run = async () => {
   );
   assert.equal(taskOutOfScope.status, 403, "subadmin cannot create a task in an out-of-scope project");
 
+  // --- fix: canViewProject's module/task fallback must use the same
+  // managed-user-set as visibilityFilter, not bare user._id (Critical finding)
+  // A project managed by an outsider gets a task assigned to memberA (someone
+  // the subadmin manages). visibilityFilter already put this project in the
+  // subadmin's list via the task-assignment fallback; canViewProject must now
+  // agree and allow the direct fetch too, instead of 403ing.
+
+  const taskInOutOfScopeProject = await axios.post(
+    `${BASE}/tasks`,
+    { project: projectOutOfScopeId, title: "Assigned to managed user", assignees: [memberA.userId] },
+    adminAuth
+  );
+  assert.equal(taskInOutOfScopeProject.status, 201, "admin assigns a task in the out-of-scope project to memberA");
+
+  const listAfterTaskAssign = await axios.get(`${BASE}/projects`, subadmin.auth);
+  const visibleIdsAfterTaskAssign = listAfterTaskAssign.data.data.projects.map((p) => String(p._id));
+  assert.ok(
+    visibleIdsAfterTaskAssign.includes(String(projectOutOfScopeId)),
+    "subadmin's list now includes the out-of-scope project via memberA's task assignment"
+  );
+
+  const getOutOfScopeProjectAfterAssign = await axios.get(`${BASE}/projects/${projectOutOfScopeId}`, subadmin.auth);
+  assert.equal(
+    getOutOfScopeProjectAfterAssign.status,
+    200,
+    "subadmin can now fetch the project directly too (list and detail agree)"
+  );
+
+  // --- fix: a subadmin's own managed/created project must appear in their
+  // own list, not just be directly fetchable (Important finding)
+  // scopeIds for visibilityFilter must include the subadmin's own _id, not
+  // just their managed-user-set (which deliberately excludes admin/subadmin).
+
+  const projectSelfManaged = await axios.post(
+    `${BASE}/projects`,
+    { name: `Subadmin Self-Managed Project ${Date.now()}`, manager: subadmin.userId, type: "internal" },
+    subadmin.auth
+  );
+  assert.equal(projectSelfManaged.status, 201, "subadmin creates a project they themselves manage");
+  const projectSelfManagedId = projectSelfManaged.data.data.project._id;
+
+  const listWithSelfManaged = await axios.get(`${BASE}/projects`, subadmin.auth);
+  const visibleIdsWithSelfManaged = listWithSelfManaged.data.data.projects.map((p) => String(p._id));
+  assert.ok(
+    visibleIdsWithSelfManaged.includes(String(projectSelfManagedId)),
+    "subadmin's own managed project appears in their own project list"
+  );
+
+  const getSelfManagedProject = await axios.get(`${BASE}/projects/${projectSelfManagedId}`, subadmin.auth);
+  assert.equal(getSelfManagedProject.status, 200, "subadmin can also fetch their own managed project directly");
+
   console.log("smoke-subadmin: all checks passed");
 };
 

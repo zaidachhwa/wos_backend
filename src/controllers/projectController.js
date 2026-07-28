@@ -32,9 +32,11 @@ export const canViewProject = async (user, project) => {
     if (managedIds.includes(idOf(project.manager))) return true;
     if ((project.members || []).some((m) => managedIds.includes(idOf(m)))) return true;
   }
-  const assignedToAModule = await ProjectModule.exists({ project: project._id, assignees: user._id });
+  const scopeIds =
+    user.role === "subadmin" ? [...(await getManagedUserIds(user)), user._id] : [user._id];
+  const assignedToAModule = await ProjectModule.exists({ project: project._id, assignees: { $in: scopeIds } });
   if (assignedToAModule) return true;
-  const assignedToATask = await Task.exists({ project: project._id, assignees: user._id });
+  const assignedToATask = await Task.exists({ project: project._id, assignees: { $in: scopeIds } });
   return !!assignedToATask;
 };
 
@@ -42,7 +44,8 @@ export const canViewProject = async (user, project) => {
 // may view, so task list filtering doesn't duplicate the visibility rule.
 export const visibilityFilter = async (user) => {
   if (["admin", "manager"].includes(user.role)) return {};
-  const scopeIds = user.role === "subadmin" ? await getManagedUserIds(user) : [user._id];
+  const scopeIds =
+    user.role === "subadmin" ? [...(await getManagedUserIds(user)), user._id] : [user._id];
   const [assignedModuleProjectIds, assignedTaskProjectIds] = await Promise.all([
     ProjectModule.find({ assignees: { $in: scopeIds } }).distinct("project"),
     Task.find({ assignees: { $in: scopeIds } }).distinct("project"),
