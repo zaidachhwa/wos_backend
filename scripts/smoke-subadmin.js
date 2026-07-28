@@ -423,6 +423,24 @@ const run = async () => {
     "subadmin can reach the AI workload endpoint (200 if Gemini is configured, 503 if AI isn't configured — both prove the role gate didn't 403)"
   );
 
+  // --- subadmin: can act for a managed user, not for an outsider -----------
+
+  const iso = (offsetHours) => new Date(Date.now() + offsetHours * 3600 * 1000).toISOString();
+
+  const timeBlockInScope = await axios.post(
+    `${BASE}/timeblocks`,
+    { title: "Subadmin-created block", start: iso(1), end: iso(2), category: "meeting", user: memberA.userId },
+    subadmin.auth
+  );
+  assert.equal(timeBlockInScope.status, 201, "subadmin creates a time block for a managed user");
+
+  const timeBlockOutOfScope = await axios.post(
+    `${BASE}/timeblocks`,
+    { title: "Should fail", start: iso(1), end: iso(2), category: "meeting", user: outsider.userId },
+    { ...subadmin.auth, validateStatus: () => true }
+  );
+  assert.equal(timeBlockOutOfScope.status, 403, "subadmin cannot create a time block for an outsider");
+
   console.log("smoke-subadmin: all checks passed");
 };
 

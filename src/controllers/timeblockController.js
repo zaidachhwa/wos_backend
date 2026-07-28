@@ -1,5 +1,6 @@
 import TimeBlock from "../models/TimeBlock.js";
 import User from "../models/User.js";
+import { getManagedUserIds } from "../utils/subadminScope.js";
 import { recordActivity } from "../utils/record.js";
 
 // Can `actor` create/list time blocks on behalf of `targetUserId`?
@@ -10,6 +11,10 @@ export const canActForUser = async (actor, targetUserId) => {
   if (actor.role === "manager") {
     const target = await User.findById(targetUserId);
     return !!target && String(target.reportingManager) === String(actor._id);
+  }
+  if (actor.role === "subadmin") {
+    const managedIds = (await getManagedUserIds(actor)).map(String);
+    return managedIds.includes(String(targetUserId));
   }
   return false;
 };
