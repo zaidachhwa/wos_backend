@@ -586,6 +586,76 @@ const run = async () => {
     "me's populated managedDepartment._id matches the subadmin's actual managed department"
   );
 
+  // --- fix: PATCH /profile returns a populated managedDepartment, so a
+  // subadmin editing their own profile doesn't lose managedDepartment._id
+  // client-side (re-review finding 1)
+
+  const profileUpdateAsSubadmin = await axios.patch(
+    `${BASE}/profile`,
+    { name: "Subadmin Renamed" },
+    subadmin.auth
+  );
+  assert.equal(profileUpdateAsSubadmin.status, 200, "subadmin updates their own profile");
+  assert.ok(
+    profileUpdateAsSubadmin.data.data.user.managedDepartment &&
+      typeof profileUpdateAsSubadmin.data.data.user.managedDepartment === "object",
+    "profile update response's managedDepartment is a populated object, not a bare ObjectId string"
+  );
+  assert.equal(
+    String(profileUpdateAsSubadmin.data.data.user.managedDepartment._id),
+    String(deptId),
+    "profile update response's populated managedDepartment._id matches the subadmin's actual managed department"
+  );
+
+  // --- fix: a subadmin cannot demote/deactivate an in-department manager
+  // (re-review finding 2) — manager is unscoped/company-wide, same as
+  // admin/subadmin, so the existing admin/subadmin target-role guard must
+  // also cover manager.
+
+  const managerInDept = await createUser(adminAuth, "manager", { team: teamAId, department: deptId });
+
+  const subadminUpdateManagerForbidden = await axios.patch(
+    `${BASE}/users/${managerInDept.userId}`,
+    { role: "member" },
+    { ...subadmin.auth, validateStatus: () => true }
+  );
+  assert.equal(
+    subadminUpdateManagerForbidden.status,
+    403,
+    "subadmin cannot demote an in-department manager"
+  );
+
+  const subadminDeleteManagerForbidden = await axios.delete(`${BASE}/users/${managerInDept.userId}`, {
+    ...subadmin.auth,
+    validateStatus: () => true,
+  });
+  assert.equal(
+    subadminDeleteManagerForbidden.status,
+    403,
+    "subadmin cannot deactivate an in-department manager"
+  );
+
+  // --- fix: managedDepartment is cleared when a subadmin is demoted, so a
+  // later re-promotion can't silently inherit the stale value (minor finding)
+
+  const demoteSubadmin = await axios.patch(
+    `${BASE}/users/${subadmin.userId}`,
+    { role: "member" },
+    adminAuth
+  );
+  assert.equal(demoteSubadmin.status, 200, "admin demotes the subadmin fixture to member");
+
+  const repromoteMissingDept = await axios.patch(
+    `${BASE}/users/${subadmin.userId}`,
+    { role: "subadmin" },
+    { ...adminAuth, validateStatus: () => true }
+  );
+  assert.equal(
+    repromoteMissingDept.status,
+    400,
+    "re-promoting to subadmin without managedDepartment is rejected — the stale managedDepartment was actually cleared on demotion, not silently reused"
+  );
+
   console.log("smoke-subadmin: all checks passed");
 };
 

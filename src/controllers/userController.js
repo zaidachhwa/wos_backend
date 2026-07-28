@@ -132,7 +132,7 @@ export const updateUser = async (req, res) => {
     }
 
     if (req.user.role === "subadmin") {
-      if (["admin", "subadmin"].includes(target.role)) {
+      if (["admin", "manager", "subadmin"].includes(target.role)) {
         return res.status(403).json({ success: false, message: "Forbidden" });
       }
       if (updates.role && ["admin", "manager", "subadmin"].includes(updates.role)) {
@@ -161,6 +161,10 @@ export const updateUser = async (req, res) => {
             message: "managedDepartment is required for the subadmin role",
           });
         }
+      } else {
+        // Role isn't (staying) subadmin — clear any stale managedDepartment so a
+        // later re-promotion can't silently inherit a previous department.
+        updates.managedDepartment = null;
       }
     }
 
@@ -187,7 +191,7 @@ export const deleteUser = async (req, res) => {
     }
 
     if (req.user.role === "subadmin") {
-      if (["admin", "subadmin"].includes(target.role)) {
+      if (["admin", "manager", "subadmin"].includes(target.role)) {
         return res.status(403).json({ success: false, message: "Forbidden" });
       }
       const managedUserIds = (await getManagedUserIds(req.user)).map(String);
