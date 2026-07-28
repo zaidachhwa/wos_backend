@@ -1,6 +1,7 @@
 import Task from "../models/Task.js";
 import FollowUp from "../models/FollowUp.js";
 import User from "../models/User.js";
+import { reportScopeFilter } from "../utils/subadminScope.js";
 
 const DAY = 24 * 3600 * 1000;
 
@@ -48,10 +49,7 @@ export const teamReport = async (req, res) => {
       return res.status(400).json({ success: false, message: "from and to must be a valid date range" });
     }
 
-    const reportFilter =
-      req.user.role === "admin"
-        ? { role: { $ne: "admin" }, isActive: true }
-        : { reportingManager: req.user._id, isActive: true };
+    const reportFilter = await reportScopeFilter(req.user);
     const people = await User.find(reportFilter).select("name role designation").sort("name");
     const ids = people.map((p) => p._id);
 

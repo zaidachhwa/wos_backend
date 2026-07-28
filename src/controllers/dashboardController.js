@@ -6,6 +6,7 @@ import Activity from "../models/Activity.js";
 import Team from "../models/Team.js";
 import User from "../models/User.js";
 import { visibilityFilter } from "./projectController.js";
+import { getManagedUserIds } from "../utils/subadminScope.js";
 import { computeProjectProgress } from "../utils/progress.js";
 import { localDay } from "./notificationController.js";
 import { isTaskOverdue } from "../utils/taskDates.js";
@@ -55,7 +56,9 @@ const managerLikeDashboard = async (user) => {
 
   const [projectIds, reports, todaySchedule] = await Promise.all([
     Project.find(projectFilter).distinct("_id"),
-    User.find({ reportingManager: user._id, isActive: true }).select("name role"),
+    user.role === "subadmin"
+      ? User.find({ _id: { $in: await getManagedUserIds(user) }, isActive: true }).select("name role")
+      : User.find({ reportingManager: user._id, isActive: true }).select("name role"),
     TimeBlock.find({ user: user._id, start: { $gte: start, $lte: end } }).sort("start"),
   ]);
 

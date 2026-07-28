@@ -6,6 +6,6 @@ import { authenticate, authorize } from "../middleware/auth.js";
 const router = Router();
 router.use(authenticate);
 
-router.get("/team", authorize("admin", "manager"), teamReport);
+router.get("/team", authorize("admin", "manager", "subadmin"), teamReport);
 
 export default router;

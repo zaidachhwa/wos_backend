@@ -369,6 +369,26 @@ const run = async () => {
   const getSelfManagedProject = await axios.get(`${BASE}/projects/${projectSelfManagedId}`, subadmin.auth);
   assert.equal(getSelfManagedProject.status, 200, "subadmin can also fetch their own managed project directly");
 
+  // --- subadmin: dashboard "reports" is the managed-user-set ---------------
+
+  const dashboardAsSubadmin = await axios.get(`${BASE}/dashboard`, subadmin.auth);
+  assert.equal(dashboardAsSubadmin.status, 200, "subadmin fetches their dashboard");
+  const dashboardReportIds = dashboardAsSubadmin.data.data.workload.map((w) => String(w.user._id));
+  assert.ok(dashboardReportIds.includes(memberA.userId), "subadmin's dashboard workload includes memberA");
+  assert.ok(!dashboardReportIds.includes(outsider.userId), "subadmin's dashboard workload excludes outsider");
+
+  // --- subadmin: team report is scoped to the managed department -----------
+
+  const today = new Date().toISOString().slice(0, 10);
+  const reportAsSubadmin = await axios.get(
+    `${BASE}/reports/team?from=${today}&to=${today}`,
+    subadmin.auth
+  );
+  assert.equal(reportAsSubadmin.status, 200, "subadmin fetches the team report");
+  const reportUserIds = reportAsSubadmin.data.data.rows.map((r) => String(r.user._id));
+  assert.ok(reportUserIds.includes(memberA.userId), "subadmin's report includes memberA");
+  assert.ok(!reportUserIds.includes(outsider.userId), "subadmin's report excludes outsider");
+
   console.log("smoke-subadmin: all checks passed");
 };
 
