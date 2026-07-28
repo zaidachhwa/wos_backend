@@ -25,7 +25,7 @@ export const createUser = async (req, res) => {
       req.body;
 
     if (req.user.role === "subadmin") {
-      if (["admin", "subadmin"].includes(role)) {
+      if (["admin", "manager", "subadmin"].includes(role)) {
         return res.status(403).json({ success: false, message: "Forbidden" });
       }
       const managedTeamIds = (await getManagedTeamIds(req.user.managedDepartment)).map(String);
@@ -33,6 +33,14 @@ export const createUser = async (req, res) => {
         return res
           .status(403)
           .json({ success: false, message: "team must be one of your managed teams" });
+      }
+      if (reportingManager) {
+        const managedUserIds = (await getManagedUserIds(req.user)).map(String);
+        if (!managedUserIds.includes(String(reportingManager))) {
+          return res
+            .status(403)
+            .json({ success: false, message: "reportingManager must be one of your managed users" });
+        }
       }
     }
 
@@ -69,7 +77,10 @@ export const listUsers = async (req, res) => {
         ? { _id: { $in: await getManagedUserIds(req.user) } }
         : {};
     const total = await User.countDocuments(baseFilter);
-    let query = User.find(baseFilter).populate("department team reportingManager", "name email");
+    let query = User.find(baseFilter).populate(
+      "department team reportingManager managedDepartment",
+      "name email"
+    );
     if (pageParams) query = query.skip(pageParams.skip).limit(pageParams.limit);
     const users = await query;
     return res.json({
@@ -101,7 +112,16 @@ export const updateUser = async (req, res) => {
     const allowed =
       req.user.role === "subadmin"
         ? ["name", "designation", "role", "team", "isActive"]
-        : ["name", "designation", "role", "department", "team", "reportingManager", "isActive"];
+        : [
+            "name",
+            "designation",
+            "role",
+            "department",
+            "team",
+            "reportingManager",
+            "isActive",
+            "managedDepartment",
+          ];
     const updates = {};
     for (const key of allowed) {
       if (key in req.body) updates[key] = req.body[key];
@@ -115,7 +135,7 @@ export const updateUser = async (req, res) => {
       if (["admin", "subadmin"].includes(target.role)) {
         return res.status(403).json({ success: false, message: "Forbidden" });
       }
-      if (updates.role && ["admin", "subadmin"].includes(updates.role)) {
+      if (updates.role && ["admin", "manager", "subadmin"].includes(updates.role)) {
         return res.status(403).json({ success: false, message: "Forbidden" });
       }
       const managedUserIds = (await getManagedUserIds(req.user)).map(String);
@@ -128,6 +148,18 @@ export const updateUser = async (req, res) => {
           return res
             .status(403)
             .json({ success: false, message: "team must be one of your managed teams" });
+        }
+      }
+    } else {
+      const resultingRole = "role" in updates ? updates.role : target.role;
+      if (resultingRole === "subadmin") {
+        const resultingManagedDepartment =
+          "managedDepartment" in updates ? updates.managedDepartment : target.managedDepartment;
+        if (!resultingManagedDepartment) {
+          return res.status(400).json({
+            success: false,
+            message: "managedDepartment is required for the subadmin role",
+          });
         }
       }
     }

@@ -10,6 +10,10 @@ import { validateTimeSlot } from "../utils/taskDates.js";
 import { maxBonusFor } from "../utils/points.js";
 
 const SUBLEAD_PLUS = ["admin", "manager", "subadmin", "sublead"];
+// Deliberately excludes subadmin: unlike task-editing (SUBLEAD_PLUS), comment
+// moderation here has no canViewProject/department-scope check at all, so
+// including subadmin would grant unscoped cross-department comment moderation.
+const COMMENT_MODERATOR_ROLES = ["admin", "manager", "sublead"];
 
 const FULL_FIELDS = [
   "title",
@@ -515,7 +519,7 @@ export const updateComment = async (req, res) => {
     if (!comment) {
       return res.status(404).json({ success: false, message: "Comment not found" });
     }
-    const canManage = SUBLEAD_PLUS.includes(req.user.role);
+    const canManage = COMMENT_MODERATOR_ROLES.includes(req.user.role);
     if (idOf(comment.user) !== String(req.user._id) && !canManage) {
       return res.status(403).json({ success: false, message: "Forbidden" });
     }

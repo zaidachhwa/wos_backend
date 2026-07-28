@@ -40,7 +40,7 @@ export const getLeaderboard = async (req, res) => {
     // is an explicit admin/manager report action, so it bypasses the lock —
     // otherwise there'd be no way to pull last week's numbers on a Friday.
     // Admins also see the live view any day, for oversight.
-    const bypassLock = format === "csv" || req.user.role === "admin";
+    const bypassLock = format === "csv" || req.user.role === "admin" || req.user.role === "subadmin";
     if (!bypassLock && new Date().getDay() !== 1) {
       const nextMonday = mondayOf(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
       return res.json({
@@ -58,6 +58,7 @@ export const getLeaderboard = async (req, res) => {
 
     const rosterFilter = { isActive: true, role: { $ne: "admin" } };
     if (req.user.role === "subadmin") {
+      rosterFilter.role = { $nin: ["admin", "subadmin"] };
       const managedTeamIds = (await getManagedTeamIds(req.user.managedDepartment)).map(String);
       if (req.query.team) {
         if (!managedTeamIds.includes(String(req.query.team))) {

@@ -45,7 +45,7 @@ export const login = async (req, res) => {
     user.previousRefreshTokenExpiresAt = null;
     await user.save();
     res.cookie("refreshToken", refreshToken, refreshCookieOptions);
-    const safeUser = await User.findById(user._id).populate("department team");
+    const safeUser = await User.findById(user._id).populate("department team managedDepartment");
     return res.json({ success: true, message: "Logged in", data: { user: safeUser, accessToken } });
   } catch (error) {
     console.error(error);
@@ -101,7 +101,7 @@ export const loginWithGoogle = async (req, res) => {
     user.previousRefreshTokenExpiresAt = null;
     await user.save();
     res.cookie("refreshToken", refreshToken, refreshCookieOptions);
-    const safeUser = await User.findById(user._id).populate("department team");
+    const safeUser = await User.findById(user._id).populate("department team managedDepartment");
     return res.json({ success: true, message: "Logged in", data: { user: safeUser, accessToken } });
   } catch (error) {
     console.error(error);
@@ -185,7 +185,7 @@ export const logout = async (req, res) => {
 
 export const me = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).populate("department team");
+    const user = await User.findById(req.user._id).populate("department team managedDepartment");
     return res.json({ success: true, message: "Profile fetched", data: { user } });
   } catch (error) {
     console.error(error);

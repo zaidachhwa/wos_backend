@@ -441,6 +441,151 @@ const run = async () => {
   );
   assert.equal(timeBlockOutOfScope.status, 403, "subadmin cannot create a time block for an outsider");
 
+  // --- fix: subadmin cannot assign/promote to role "manager" (Critical
+  // finding 1) — manager is unscoped company-wide everywhere else in this
+  // codebase, so allowing it would let a subadmin escape the department
+  // boundary entirely.
+
+  const createManagerForbidden = await axios.post(
+    `${BASE}/users`,
+    {
+      name: "Should fail",
+      email: `shouldfailmgr+${Date.now()}@wos.local`,
+      password: "smokepass123",
+      role: "manager",
+      team: teamAId,
+    },
+    { ...subadmin.auth, validateStatus: () => true }
+  );
+  assert.equal(createManagerForbidden.status, 403, "subadmin cannot create a user with role manager");
+
+  const updateToManagerForbidden = await axios.patch(
+    `${BASE}/users/${memberA.userId}`,
+    { role: "manager" },
+    { ...subadmin.auth, validateStatus: () => true }
+  );
+  assert.equal(
+    updateToManagerForbidden.status,
+    403,
+    "subadmin cannot promote an in-scope member to role manager"
+  );
+
+  // --- fix: subadmin cannot attach a new user's reportingManager to an
+  // out-of-department user (Important finding 5)
+
+  const reportingManagerOutOfScope = await axios.post(
+    `${BASE}/users`,
+    {
+      name: "Should fail",
+      email: `shouldfailrm+${Date.now()}@wos.local`,
+      password: "smokepass123",
+      role: "member",
+      team: teamAId,
+      reportingManager: outsider.userId,
+    },
+    { ...subadmin.auth, validateStatus: () => true }
+  );
+  assert.equal(
+    reportingManagerOutOfScope.status,
+    403,
+    "subadmin cannot create a user reporting to a manager outside their managed set"
+  );
+
+  const reportingManagerInScope = await axios.post(
+    `${BASE}/users`,
+    {
+      name: "Reporting to memberA",
+      email: `reportok+${Date.now()}@wos.local`,
+      password: "smokepass123",
+      role: "member",
+      team: teamAId,
+      reportingManager: memberA.userId,
+    },
+    subadmin.auth
+  );
+  assert.equal(
+    reportingManagerInScope.status,
+    201,
+    "subadmin can create a user reporting to one of their own managed users"
+  );
+  const promotionCandidateId = reportingManagerInScope.data.data.user._id;
+
+  // --- fix: updateComment no longer grants subadmin unscoped cross-department
+  // comment moderation (Important finding 3) — even on a task the subadmin CAN
+  // view (via memberA's assignment), editing someone else's comment is 403.
+
+  const commentByMemberA = await axios.post(
+    `${BASE}/tasks/${taskInOutOfScopeProject.data.data.task._id}/comments`,
+    { text: "memberA's comment" },
+    memberA.auth
+  );
+  assert.equal(commentByMemberA.status, 201, "memberA can comment on the task they're assigned to");
+  const comments = commentByMemberA.data.data.task.comments;
+  const commentId = comments[comments.length - 1]._id;
+
+  const subadminEditForeignComment = await axios.patch(
+    `${BASE}/tasks/${taskInOutOfScopeProject.data.data.task._id}/comments/${commentId}`,
+    { text: "Should fail" },
+    { ...subadmin.auth, validateStatus: () => true }
+  );
+  assert.equal(
+    subadminEditForeignComment.status,
+    403,
+    "subadmin cannot edit another user's comment on an out-of-department project's task"
+  );
+
+  // --- fix: managedDepartment can be set via updateUser for an admin actor
+  // (Important finding 4) — promoting an in-scope member to subadmin now
+  // actually persists the managed department instead of silently defaulting
+  // to null.
+
+  const promoteMissingDept = await axios.patch(
+    `${BASE}/users/${promotionCandidateId}`,
+    { role: "subadmin" },
+    { ...adminAuth, validateStatus: () => true }
+  );
+  assert.equal(
+    promoteMissingDept.status,
+    400,
+    "admin promoting a user to subadmin without managedDepartment is rejected"
+  );
+
+  const promoteWithDept = await axios.patch(
+    `${BASE}/users/${promotionCandidateId}`,
+    { role: "subadmin", managedDepartment: otherDeptId },
+    adminAuth
+  );
+  assert.equal(promoteWithDept.status, 200, "admin promotes the candidate to subadmin with a managedDepartment");
+  assert.equal(
+    String(promoteWithDept.data.data.user.managedDepartment),
+    String(otherDeptId),
+    "the managedDepartment persists in the update response"
+  );
+
+  const verifyPromoted = await axios.get(`${BASE}/users`, adminAuth);
+  const promotedUser = verifyPromoted.data.data.users.find((u) => String(u._id) === promotionCandidateId);
+  assert.ok(promotedUser, "promoted user appears in the admin's user list");
+  assert.equal(
+    String(promotedUser.managedDepartment?._id || promotedUser.managedDepartment),
+    String(otherDeptId),
+    "managedDepartment persists on a follow-up GET too"
+  );
+
+  // --- fix: managedDepartment is populated in API responses, not a bare
+  // ObjectId (Critical finding 2)
+
+  const meAsSubadmin = await axios.get(`${BASE}/auth/me`, subadmin.auth);
+  assert.equal(meAsSubadmin.status, 200, "subadmin fetches their own profile");
+  assert.ok(
+    meAsSubadmin.data.data.user.managedDepartment && typeof meAsSubadmin.data.data.user.managedDepartment === "object",
+    "me's managedDepartment is a populated object, not a bare ObjectId string"
+  );
+  assert.equal(
+    String(meAsSubadmin.data.data.user.managedDepartment._id),
+    String(deptId),
+    "me's populated managedDepartment._id matches the subadmin's actual managed department"
+  );
+
   console.log("smoke-subadmin: all checks passed");
 };
 
