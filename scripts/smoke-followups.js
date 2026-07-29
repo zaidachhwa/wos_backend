@@ -262,6 +262,14 @@ const run = async () => {
   assert.equal(outsiderFollowUp.status, 200, "outsider submits a morning follow-up");
   const outsiderFollowUpId = outsiderFollowUp.data.data.followUp._id;
 
+  const subleadOwnFollowUp = await axios.post(
+    `${BASE}/followups`,
+    { date: today, type: "morning", data: { todayPlan: "Sublead's own plan" }, submit: true },
+    sublead.auth
+  );
+  assert.equal(subleadOwnFollowUp.status, 200, "sublead submits their own morning follow-up");
+  const subleadOwnFollowUpId = subleadOwnFollowUp.data.data.followUp._id;
+
   const subleadTeamList = await axios.get(
     `${BASE}/followups?date=${today}&type=morning&scope=team`,
     sublead.auth
@@ -274,6 +282,10 @@ const run = async () => {
   assert.ok(
     !subleadRows.some((f) => f.user._id === outsiderMember.userId),
     "sublead's team list excludes a member on a different team"
+  );
+  assert.ok(
+    subleadRows.some((f) => f.user._id === sublead.userId),
+    "sublead's own submission appears in their own team list (self-inclusive by design)"
   );
 
   const subleadNoTeam = await createUser(adminAuth, "sublead");
@@ -325,6 +337,17 @@ const run = async () => {
     { ...sublead.auth, validateStatus: () => true }
   );
   assert.equal(subleadReviewsOutsiderForbidden.status, 403, "sublead cannot review a follow-up outside their team");
+
+  const subleadReviewsOwnForbidden = await axios.patch(
+    `${BASE}/followups/${subleadOwnFollowUpId}/review`,
+    { managerComment: "Self review" },
+    { ...sublead.auth, validateStatus: () => true }
+  );
+  assert.equal(
+    subleadReviewsOwnForbidden.status,
+    403,
+    "sublead cannot review their own follow-up, even though it's self-inclusive in their team list"
+  );
 
   const subadminReviews = await axios.patch(
     `${BASE}/followups/${deptMember2FollowUpId}/review`,

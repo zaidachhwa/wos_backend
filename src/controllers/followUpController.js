@@ -142,6 +142,7 @@ export const reviewFollowUp = async (req, res) => {
       req.user.role === "sublead" &&
       req.user.team &&
       owner &&
+      String(owner._id) !== String(req.user._id) &&
       String(owner.team) === String(req.user.team);
     const isSubadminManaged =
       req.user.role === "subadmin" &&
