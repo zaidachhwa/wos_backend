@@ -180,7 +180,7 @@ const run = async () => {
 
   const task = await axios.post(
     `${BASE}/tasks`,
-    { project: projectId, module: moduleId, title: "Wire up SSO", assignees: [secondReport.userId] },
+    { project: projectId, modules: [moduleId], title: "Wire up SSO", assignees: [secondReport.userId] },
     manager.auth
   );
   await axios.patch(`${BASE}/tasks/${task.data.data.task._id}`, { status: "completed" }, secondReport.auth);

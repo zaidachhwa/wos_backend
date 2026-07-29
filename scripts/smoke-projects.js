@@ -194,14 +194,14 @@ const run = async () => {
 
   const taskWrongModule = await axios.post(
     `${BASE}/tasks`,
-    { project: projectId, module: "000000000000000000000000", title: "Bad module" },
+    { project: projectId, modules: ["000000000000000000000000"], title: "Bad module" },
     { ...manager.auth, validateStatus: () => true }
   );
   assert.equal(taskWrongModule.status, 400, "task module must belong to the project");
 
   const taskCreated = await axios.post(
     `${BASE}/tasks`,
-    { project: projectId, module: moduleId, title: "Build API", assignees: [member.userId, outsiderSublead.userId] },
+    { project: projectId, modules: [moduleId], title: "Build API", assignees: [member.userId, outsiderSublead.userId] },
     manager.auth
   );
   assert.equal(taskCreated.status, 201, "manager creates a task assigned to two people");
@@ -290,7 +290,7 @@ const run = async () => {
 
   const secondModuleTask = await axios.post(
     `${BASE}/tasks`,
-    { project: projectId, module: moduleId, title: "Second module task" },
+    { project: projectId, modules: [moduleId], title: "Second module task" },
     manager.auth
   );
   assert.equal(secondModuleTask.status, 201, "creates a second (incomplete) task in the module");
@@ -313,6 +313,83 @@ const run = async () => {
   assert.ok(
     Math.abs(projectWithProgress.data.data.project.progress - 0.75) < 0.001,
     `project progress should be ~0.75, got ${projectWithProgress.data.data.project.progress}`
+  );
+
+  // --- Multi-module tasks ---------------------------------------------------
+
+  const moduleB = await axios.post(
+    `${BASE}/projects/${projectId}/modules`,
+    { name: "Frontend module" },
+    manager.auth
+  );
+  assert.equal(moduleB.status, 201, "manager creates a second module");
+  const moduleBId = moduleB.data.data.module._id;
+
+  const multiModuleTask = await axios.post(
+    `${BASE}/tasks`,
+    { project: projectId, modules: [moduleId, moduleBId], title: "Spans two modules" },
+    manager.auth
+  );
+  assert.equal(multiModuleTask.status, 201, "creates a task in two modules at once");
+  assert.deepEqual(
+    multiModuleTask.data.data.task.modules.map(String).sort(),
+    [moduleId, moduleBId].map(String).sort(),
+    "task persists both module ids"
+  );
+  const multiModuleTaskId = multiModuleTask.data.data.task._id;
+
+  const listByModuleId = await axios.get(`${BASE}/tasks?module=${moduleId}`, manager.auth);
+  assert.ok(
+    listByModuleId.data.data.tasks.some((t) => t._id === multiModuleTaskId),
+    "?module= filter finds a task that has this module among several"
+  );
+  const listByModuleBId = await axios.get(`${BASE}/tasks?module=${moduleBId}`, manager.auth);
+  assert.ok(
+    listByModuleBId.data.data.tasks.some((t) => t._id === multiModuleTaskId),
+    "?module= filter also finds it via the second module"
+  );
+
+  const modulesBeforeDelete = await axios.get(`${BASE}/projects/${projectId}/modules`, manager.auth);
+  const moduleBBeforeDelete = modulesBeforeDelete.data.data.modules.find((m) => m._id === moduleBId);
+  assert.ok(
+    moduleBBeforeDelete.taskCount >= 1,
+    "the multi-module task counts toward module B's task count"
+  );
+  const moduleABeforeDelete = modulesBeforeDelete.data.data.modules.find((m) => m._id === moduleId);
+  assert.ok(
+    moduleABeforeDelete.taskCount >= 1,
+    "the same task also counts toward module A's task count (independent counting)"
+  );
+
+  // --- Module deletion: unlink-then-delete-if-orphaned ----------------------
+
+  const deleteModuleBWithSurvivor = await axios.delete(
+    `${BASE}/projects/${projectId}/modules/${moduleBId}`,
+    adminAuth
+  );
+  assert.equal(deleteModuleBWithSurvivor.status, 200, "admin deletes module B");
+
+  const taskAfterModuleBDelete = await axios.get(`${BASE}/tasks/${multiModuleTaskId}`, manager.auth);
+  assert.equal(taskAfterModuleBDelete.status, 200, "the multi-module task survives — it still had module A");
+  assert.deepEqual(
+    taskAfterModuleBDelete.data.data.task.modules.map(String),
+    [moduleId],
+    "only module B was removed from its modules list"
+  );
+
+  const deleteModuleAOrphans = await axios.delete(
+    `${BASE}/projects/${projectId}/modules/${moduleId}`,
+    adminAuth
+  );
+  assert.equal(deleteModuleAOrphans.status, 200, "admin deletes module A (the task's last remaining module)");
+
+  const taskAfterLastModuleDeleted = await axios.get(`${BASE}/tasks/${multiModuleTaskId}`, {
+    ...manager.auth,
+    validateStatus: () => true,
+  });
+  assert.equal(
+    taskAfterLastModuleDeleted.status, 404,
+    "the task is hard-deleted once its last remaining module is deleted"
   );
 
   // --- Delete ------------------------------------------------------------

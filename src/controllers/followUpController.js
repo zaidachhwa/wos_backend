@@ -216,10 +216,10 @@ export const workLog = async (req, res) => {
       assignees: req.user._id,
       status: "completed",
       updatedAt: { $gte: dayStart, $lte: dayEnd },
-    }).populate("module", "name");
+    }).populate("modules", "name");
 
     const taskLines = tasks.length
-      ? tasks.map((t) => `- ${t.title}${t.module ? ` (${t.module.name})` : ""}`).join("\n")
+      ? tasks.map((t) => `- ${t.title}${t.modules?.length ? ` (${t.modules.map((m) => m.name).join(", ")})` : ""}`).join("\n")
       : "- None";
 
     const rawText = [
