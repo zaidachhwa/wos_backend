@@ -104,7 +104,12 @@ export const deleteModule = async (req, res) => {
     if (!projectModule) {
       return res.status(404).json({ success: false, message: "Module not found" });
     }
-    await Task.deleteMany({ module: projectModule._id });
+    // Unlink the deleted module from every task that has it, then hard-delete
+    // only the tasks that are left with zero modules as a result — a task
+    // that still belongs to another module survives with this one removed.
+    const affectedTaskIds = await Task.find({ modules: projectModule._id }).distinct("_id");
+    await Task.updateMany({ _id: { $in: affectedTaskIds } }, { $pull: { modules: projectModule._id } });
+    await Task.deleteMany({ _id: { $in: affectedTaskIds }, modules: { $size: 0 } });
     recordActivity({
       actor: req.user._id,
       action: "deleted",

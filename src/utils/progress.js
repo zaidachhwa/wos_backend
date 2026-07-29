@@ -12,13 +12,13 @@ const moduleProgress = (tasks) =>
 export const computeProjectProgress = async (projectId) => {
   const [modules, tasks] = await Promise.all([
     ProjectModule.find({ project: projectId }).select("_id").lean(),
-    Task.find({ project: projectId }).select("module status").lean(),
+    Task.find({ project: projectId }).select("modules status").lean(),
   ]);
   const units = modules.map((m) =>
-    moduleProgress(tasks.filter((t) => String(t.module) === String(m._id)))
+    moduleProgress(tasks.filter((t) => (t.modules || []).some((tm) => String(tm) === String(m._id))))
   );
   for (const t of tasks) {
-    if (!t.module) units.push(t.status === "completed" ? 1 : 0);
+    if (!t.modules || !t.modules.length) units.push(t.status === "completed" ? 1 : 0);
   }
   return units.length ? units.reduce((a, b) => a + b, 0) / units.length : 0;
 };
@@ -30,10 +30,10 @@ export const modulesWithProgress = async (projectId) => {
       .populate("assignees", "name role designation")
       .sort("name")
       .lean(),
-    Task.find({ project: projectId }).select("module status").lean(),
+    Task.find({ project: projectId }).select("modules status").lean(),
   ]);
   return modules.map((m) => {
-    const moduleTasks = tasks.filter((t) => String(t.module) === String(m._id));
+    const moduleTasks = tasks.filter((t) => (t.modules || []).some((tm) => String(tm) === String(m._id)));
     return {
       ...m,
       taskCount: moduleTasks.length,
