@@ -18,7 +18,7 @@ const COMMENT_MODERATOR_ROLES = ["admin", "manager", "sublead"];
 const FULL_FIELDS = [
   "title",
   "description",
-  "module",
+  "modules",
   "assignees",
   "priority",
   "status",
@@ -39,7 +39,7 @@ export const createTask = async (req, res) => {
   try {
     const {
       project: projectId,
-      module: moduleId,
+      modules,
       title,
       description,
       assignees,
@@ -66,7 +66,7 @@ export const createTask = async (req, res) => {
     if (!(await canViewProject(req.user, project))) {
       return res.status(403).json({ success: false, message: "Forbidden" });
     }
-    if (moduleId) {
+    for (const moduleId of modules || []) {
       const projectModule = await ProjectModule.findOne({ _id: moduleId, project: project._id });
       if (!projectModule) {
         return res.status(400).json({ success: false, message: "module must belong to the project" });
@@ -80,7 +80,7 @@ export const createTask = async (req, res) => {
 
     const task = await Task.create({
       project: project._id,
-      module: moduleId || null,
+      modules: modules || [],
       title,
       description,
       assignees: isMember ? [req.user._id] : assignees || [],
@@ -248,7 +248,7 @@ export const listTasks = async (req, res) => {
   try {
     const { project, module, assignee, status, priority, search, dueBefore, dueAfter, approvalStatus } = req.query;
     const filter = {};
-    if (module) filter.module = module;
+    if (module) filter.modules = module;
     if (status) filter.status = status;
     if (priority) filter.priority = priority;
     if (approvalStatus) filter.approvalStatus = approvalStatus;
@@ -347,8 +347,8 @@ export const updateTask = async (req, res) => {
         .json({ success: false, message: `Cannot update field(s): ${disallowed.join(", ")}` });
     }
 
-    if (req.body.module) {
-      const projectModule = await ProjectModule.findOne({ _id: req.body.module, project: task.project });
+    for (const moduleId of req.body.modules || []) {
+      const projectModule = await ProjectModule.findOne({ _id: moduleId, project: task.project });
       if (!projectModule) {
         return res.status(400).json({ success: false, message: "module must belong to the project" });
       }
@@ -427,7 +427,7 @@ export const updateTask = async (req, res) => {
 
       const nextTask = await Task.create({
         project: task.project,
-        module: task.module,
+        modules: task.modules,
         title: task.title,
         description: task.description,
         assignees: task.assignees,

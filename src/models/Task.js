@@ -27,7 +27,7 @@ const recurrenceSchema = new mongoose.Schema(
 const taskSchema = new mongoose.Schema(
   {
     project: { type: mongoose.Schema.Types.ObjectId, ref: "Project", required: true },
-    module: { type: mongoose.Schema.Types.ObjectId, ref: "ProjectModule", default: null },
+    modules: [{ type: mongoose.Schema.Types.ObjectId, ref: "ProjectModule" }],
     title: { type: String, required: true, trim: true },
     description: { type: String, default: "" },
     assignees: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
