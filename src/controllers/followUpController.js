@@ -5,8 +5,9 @@ import { recordActivity, notify } from "../utils/record.js";
 import { paginationParams, paginationMeta } from "../utils/pagination.js";
 import { localDay } from "./notificationController.js";
 import { aiConfigured, generateText } from "../services/gemini.js";
+import { getManagedUserIds } from "../utils/subadminScope.js";
 
-const SUBLEAD_PLUS = ["admin", "manager", "sublead"];
+const TEAM_SCOPE_ROLES = ["admin", "manager", "subadmin", "sublead"];
 
 // ponytail: plain Date arithmetic, no date library in this project
 const dayBoundsFor = (dateStr) => ({
@@ -65,7 +66,7 @@ export const listFollowUps = async (req, res) => {
     const { date, type, scope = "own" } = req.query;
 
     if (scope === "team") {
-      if (!SUBLEAD_PLUS.includes(req.user.role)) {
+      if (!TEAM_SCOPE_ROLES.includes(req.user.role)) {
         return res.status(403).json({ success: false, message: "Forbidden" });
       }
       if (!date || !type) {
@@ -73,10 +74,20 @@ export const listFollowUps = async (req, res) => {
           .status(400)
           .json({ success: false, message: "date and type are required for scope=team" });
       }
-      const reportFilter =
-        req.user.role === "admin"
-          ? { isActive: true }
-          : { reportingManager: req.user._id, isActive: true };
+      let reportFilter;
+      if (req.user.role === "admin") {
+        reportFilter = { isActive: true };
+      } else if (req.user.role === "subadmin") {
+        const managedIds = await getManagedUserIds(req.user);
+        reportFilter = { _id: { $in: managedIds }, isActive: true };
+      } else if (req.user.role === "sublead") {
+        if (!req.user.team) {
+          return res.json({ success: true, message: "Follow-ups fetched", data: { followUps: [] } });
+        }
+        reportFilter = { team: req.user.team, isActive: true };
+      } else {
+        reportFilter = { reportingManager: req.user._id, isActive: true };
+      }
       const reports = await User.find(reportFilter).select("name role");
       const existing = await FollowUp.find({
         user: { $in: reports.map((r) => r._id) },
@@ -127,7 +138,21 @@ export const reviewFollowUp = async (req, res) => {
 
     const owner = await User.findById(followUp.user);
     const isOwnManager = owner && String(owner.reportingManager) === String(req.user._id);
-    if (req.user.role !== "admin" && !isOwnManager) {
+    const isSubleadTeammate =
+      req.user.role === "sublead" &&
+      req.user.team &&
+      owner &&
+      String(owner.team) === String(req.user.team);
+    const isSubadminManaged =
+      req.user.role === "subadmin" &&
+      owner &&
+      (await getManagedUserIds(req.user)).some((id) => String(id) === String(owner._id));
+    if (
+      req.user.role !== "admin" &&
+      !isOwnManager &&
+      !isSubleadTeammate &&
+      !isSubadminManaged
+    ) {
       return res.status(403).json({ success: false, message: "Forbidden" });
     }
 

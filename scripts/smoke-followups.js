@@ -206,6 +206,145 @@ const run = async () => {
   assert.match(text, /Todo :\n- Finish onboarding flow\n- Review PR #42/, "todo comes from tomorrow's plan, one bullet per line");
   assert.ok(!text.includes("Smoke member:"), "no more 'name: task' prefixing");
 
+  // --- sublead team scope: team-membership match, not reportingManager ------
+
+  const dept = await axios.post(`${BASE}/departments`, { name: `Followups Smoke Dept ${Date.now()}` }, adminAuth);
+  const deptId = dept.data.data.department._id;
+  const otherDept = await axios.post(
+    `${BASE}/departments`,
+    { name: `Followups Smoke Other Dept ${Date.now()}` },
+    adminAuth
+  );
+  const otherDeptId = otherDept.data.data.department._id;
+
+  const team = await axios.post(
+    `${BASE}/teams`,
+    { name: `Followups Smoke Team ${Date.now()}`, department: deptId },
+    adminAuth
+  );
+  const teamId = team.data.data.team._id;
+  const otherTeam = await axios.post(
+    `${BASE}/teams`,
+    { name: `Followups Smoke Other Team ${Date.now()}`, department: otherDeptId },
+    adminAuth
+  );
+  const otherTeamId = otherTeam.data.data.team._id;
+
+  const sublead = await createUser(adminAuth, "sublead", { team: teamId, department: deptId });
+  // No reportingManager set on teammate/deptMember2 — proves the fix reads team
+  // membership, not reportingManager.
+  const teammate = await createUser(adminAuth, "member", { team: teamId, department: deptId });
+  const deptMember2 = await createUser(adminAuth, "member", { team: teamId, department: deptId });
+  const outsiderMember = await createUser(adminAuth, "member", { team: otherTeamId, department: otherDeptId });
+  const subadmin = await createUser(adminAuth, "subadmin", { managedDepartment: deptId });
+
+  const teammateFollowUp = await axios.post(
+    `${BASE}/followups`,
+    { date: today, type: "morning", data: { todayPlan: "Sublead scope check" }, submit: true },
+    teammate.auth
+  );
+  assert.equal(teammateFollowUp.status, 200, "teammate submits a morning follow-up");
+  const teammateFollowUpId = teammateFollowUp.data.data.followUp._id;
+
+  const deptMember2FollowUp = await axios.post(
+    `${BASE}/followups`,
+    { date: today, type: "morning", data: { todayPlan: "Subadmin scope check" }, submit: true },
+    deptMember2.auth
+  );
+  assert.equal(deptMember2FollowUp.status, 200, "second in-department member submits a morning follow-up");
+  const deptMember2FollowUpId = deptMember2FollowUp.data.data.followUp._id;
+
+  const outsiderFollowUp = await axios.post(
+    `${BASE}/followups`,
+    { date: today, type: "morning", data: { todayPlan: "Outsider check" }, submit: true },
+    outsiderMember.auth
+  );
+  assert.equal(outsiderFollowUp.status, 200, "outsider submits a morning follow-up");
+  const outsiderFollowUpId = outsiderFollowUp.data.data.followUp._id;
+
+  const subleadTeamList = await axios.get(
+    `${BASE}/followups?date=${today}&type=morning&scope=team`,
+    sublead.auth
+  );
+  assert.equal(subleadTeamList.status, 200, "sublead lists team scope");
+  const subleadRows = subleadTeamList.data.data.followUps;
+  const teammateRow = subleadRows.find((f) => f.user._id === teammate.userId);
+  assert.ok(teammateRow, "sublead sees teammate's submission via team match, despite no reportingManager link");
+  assert.equal(teammateRow.status, "submitted", "teammate row shows submitted");
+  assert.ok(
+    !subleadRows.some((f) => f.user._id === outsiderMember.userId),
+    "sublead's team list excludes a member on a different team"
+  );
+
+  const subleadNoTeam = await createUser(adminAuth, "sublead");
+  const subleadNoTeamList = await axios.get(
+    `${BASE}/followups?date=${today}&type=morning&scope=team`,
+    subleadNoTeam.auth
+  );
+  assert.equal(subleadNoTeamList.status, 200, "sublead with no team assigned still gets 200, not an error");
+  assert.deepEqual(
+    subleadNoTeamList.data.data.followUps,
+    [],
+    "sublead with no team sees an empty list, not every teamless user"
+  );
+
+  // --- subadmin team scope: department-wide via getManagedUserIds -----------
+
+  const subadminTeamList = await axios.get(
+    `${BASE}/followups?date=${today}&type=morning&scope=team`,
+    subadmin.auth
+  );
+  assert.equal(
+    subadminTeamList.status,
+    200,
+    "subadmin can list team scope (previously 403, role wasn't gated in at all)"
+  );
+  const subadminRows = subadminTeamList.data.data.followUps;
+  assert.ok(
+    subadminRows.some((f) => f.user._id === deptMember2.userId),
+    "subadmin sees a user in their managed department"
+  );
+  assert.ok(
+    !subadminRows.some((f) => f.user._id === outsiderMember.userId),
+    "subadmin's list excludes a user outside their managed department"
+  );
+
+  // --- review rights extended to match the new viewing scope -----------------
+
+  const subleadReviews = await axios.patch(
+    `${BASE}/followups/${teammateFollowUpId}/review`,
+    { managerComment: "Sublead review" },
+    sublead.auth
+  );
+  assert.equal(subleadReviews.status, 200, "sublead can review a teammate's submission via team match");
+  assert.equal(subleadReviews.data.data.followUp.status, "reviewed", "status is reviewed");
+
+  const subleadReviewsOutsiderForbidden = await axios.patch(
+    `${BASE}/followups/${outsiderFollowUpId}/review`,
+    { managerComment: "Not my team" },
+    { ...sublead.auth, validateStatus: () => true }
+  );
+  assert.equal(subleadReviewsOutsiderForbidden.status, 403, "sublead cannot review a follow-up outside their team");
+
+  const subadminReviews = await axios.patch(
+    `${BASE}/followups/${deptMember2FollowUpId}/review`,
+    { managerComment: "Subadmin review" },
+    subadmin.auth
+  );
+  assert.equal(subadminReviews.status, 200, "subadmin can review a managed user's submission");
+  assert.equal(subadminReviews.data.data.followUp.status, "reviewed", "status is reviewed");
+
+  const subadminReviewsOutsiderForbidden = await axios.patch(
+    `${BASE}/followups/${outsiderFollowUpId}/review`,
+    { managerComment: "Not my department" },
+    { ...subadmin.auth, validateStatus: () => true }
+  );
+  assert.equal(
+    subadminReviewsOutsiderForbidden.status,
+    403,
+    "subadmin cannot review a follow-up outside their managed department"
+  );
+
   console.log("smoke-followups: all checks passed");
 };
 

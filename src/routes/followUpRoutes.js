@@ -17,6 +17,6 @@ router.post("/", validateFollowUpUpsert, upsertFollowUp);
 router.get("/", listFollowUps);
 router.get("/suggestions", getFollowUpSuggestion);
 router.get("/work-log", workLog);
-router.patch("/:id/review", authorize("admin", "manager"), reviewFollowUp);
+router.patch("/:id/review", authorize("admin", "manager", "subadmin", "sublead"), reviewFollowUp);
 
 export default router;
