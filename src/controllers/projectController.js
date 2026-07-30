@@ -5,7 +5,7 @@ import User from "../models/User.js";
 import { recordActivity, notify } from "../utils/record.js";
 import { computeProjectProgress, modulesWithProgress } from "../utils/progress.js";
 import { paginationParams, paginationMeta } from "../utils/pagination.js";
-import { getManagedUserIds, getManagedTeamIds } from "../utils/subadminScope.js";
+import { getManagedUserIds, getManagedTeamIds } from "../utils/departmentScope.js";
 
 // project.manager/members may be a raw ObjectId or a populated User doc
 // (getProject populates them for the response) — always compare by _id.

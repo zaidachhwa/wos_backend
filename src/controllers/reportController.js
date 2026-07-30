@@ -1,7 +1,7 @@
 import Task from "../models/Task.js";
 import FollowUp from "../models/FollowUp.js";
 import User from "../models/User.js";
-import { reportScopeFilter } from "../utils/subadminScope.js";
+import { reportScopeFilter } from "../utils/departmentScope.js";
 
 const DAY = 24 * 3600 * 1000;
 

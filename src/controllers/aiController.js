@@ -8,7 +8,7 @@ import { canViewProject, visibilityFilter } from "./projectController.js";
 import { localDay } from "./notificationController.js";
 import { aiConfigured, generateText, generateJson } from "../services/gemini.js";
 import { isTaskOverdue } from "../utils/taskDates.js";
-import { reportScopeFilter } from "../utils/subadminScope.js";
+import { reportScopeFilter } from "../utils/departmentScope.js";
 
 export const requireAI = (req, res, next) => {
   if (!aiConfigured()) {

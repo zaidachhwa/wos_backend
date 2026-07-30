@@ -5,7 +5,7 @@ import { recordActivity, notify } from "../utils/record.js";
 import { paginationParams, paginationMeta } from "../utils/pagination.js";
 import { localDay } from "./notificationController.js";
 import { aiConfigured, generateText } from "../services/gemini.js";
-import { getManagedUserIds } from "../utils/subadminScope.js";
+import { getManagedUserIds } from "../utils/departmentScope.js";
 
 const TEAM_SCOPE_ROLES = ["admin", "manager", "subadmin", "sublead"];
 

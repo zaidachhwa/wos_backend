@@ -1,6 +1,6 @@
 import TimeBlock from "../models/TimeBlock.js";
 import User from "../models/User.js";
-import { getManagedUserIds } from "../utils/subadminScope.js";
+import { getManagedUserIds } from "../utils/departmentScope.js";
 import { recordActivity } from "../utils/record.js";
 
 // Can `actor` create/list time blocks on behalf of `targetUserId`?

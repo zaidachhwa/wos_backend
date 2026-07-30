@@ -3,7 +3,7 @@ import Task from "../models/Task.js";
 import User from "../models/User.js";
 import { pointsForCompletedTask } from "../utils/points.js";
 import { getPointsByPriority, setPointsByPriority, getPenalties, setPenalties } from "../utils/pointsConfig.js";
-import { getManagedTeamIds } from "../utils/subadminScope.js";
+import { getManagedTeamIds } from "../utils/departmentScope.js";
 import { applyOverduePenalties } from "../services/overdueSweep.js";
 
 const mondayOf = (date) => {

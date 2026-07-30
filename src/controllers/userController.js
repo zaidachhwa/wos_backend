@@ -2,7 +2,7 @@ import bcrypt from "bcrypt";
 
 import User from "../models/User.js";
 import { paginationParams, paginationMeta } from "../utils/pagination.js";
-import { getManagedTeamIds, getManagedUserIds } from "../utils/subadminScope.js";
+import { getManagedTeamIds, getManagedUserIds } from "../utils/departmentScope.js";
 
 // Would this update deactivate or demote the last remaining active admin,
 // locking everyone out of admin-only actions? Checked before isActive:false
