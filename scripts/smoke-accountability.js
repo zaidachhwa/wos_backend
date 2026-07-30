@@ -197,6 +197,26 @@ const run = async () => {
     "two concurrent sweeps must claim the newly-overdue task exactly once between them, not twice"
   );
 
+  // --- Task 6: the leaderboard nets bug + overdue penalties against completed-task points ---
+
+  await sleep(400); // let the fire-and-forget Activity writes above land
+
+  const csv = await axios.get(`${BASE}/leaderboard?week=${new Date().toISOString().slice(0, 10)}&format=csv`, manager.auth);
+  const row = csv.data
+    .trim()
+    .split("\n")
+    .slice(1)
+    .find((line) => line.includes(member.name));
+  assert.ok(row, "member appears in the export after accruing penalties");
+  const penaltyPoints = Number(row.split(",").pop());
+  // member has accrued exactly: -1 (bug_logged) + -6 (three overdue_penalized rows at
+  // the default -2 each: the section-1 "Client review exemption task" once patched out
+  // of client_review, plus "Still-open overdue task" and "Race condition overdue task"
+  // from section 5 — the sweep has no notion of *why* a task became eligible, it just
+  // claims every non-exempt, overdue, unswept task, so all three of member's overdue
+  // tasks get penalized once section 5's sweeps run). No completions yet this run.
+  assert.equal(penaltyPoints, -7, "bug and multiple overdue penalties net together correctly, going negative");
+
   console.log("smoke-accountability: all checks passed");
 };
 

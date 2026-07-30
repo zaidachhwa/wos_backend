@@ -33,7 +33,8 @@ const parseLeaderboardCsv = (csv) =>
     .slice(1)
     .filter(Boolean)
     .map((line) => {
-      const m = line.match(/^(\d+),"((?:[^"]|"")*)",(\w+),(?:"([^"]*)"|),(\d+),(\d+)$/);
+      // points can be negative now (Task 6: penalty activities net into the total)
+      const m = line.match(/^(\d+),"((?:[^"]|"")*)",(\w+),(?:"([^"]*)"|),(\d+),(-?\d+)$/);
       assert.ok(m, `unparseable leaderboard CSV row: ${line}`);
       const [, rank, name, role, team, tasksCompleted, points] = m;
       return {

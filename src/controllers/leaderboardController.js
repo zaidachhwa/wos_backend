@@ -112,6 +112,18 @@ export const getLeaderboard = async (req, res) => {
       }
     }
 
+    const penaltyActivities = await Activity.find({
+      entityType: "task",
+      action: { $in: ["overdue_penalized", "bug_logged"] },
+      createdAt: { $gte: weekStart, $lte: weekEnd },
+    }).select("meta");
+
+    for (const activity of penaltyActivities) {
+      for (const userId of activity.meta?.users || []) {
+        pointsByUser.set(userId, (pointsByUser.get(userId) || 0) + (activity.meta.points || 0));
+      }
+    }
+
     const unranked = roster.map((u) => ({
       user: {
         _id: u._id,
