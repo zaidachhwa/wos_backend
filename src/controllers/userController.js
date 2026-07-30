@@ -2,7 +2,7 @@ import bcrypt from "bcrypt";
 
 import User from "../models/User.js";
 import { paginationParams, paginationMeta } from "../utils/pagination.js";
-import { getManagedTeamIds, getManagedUserIds } from "../utils/departmentScope.js";
+import { getManagedTeamIds, getManagedUserIds, resolveDepartmentScope } from "../utils/departmentScope.js";
 
 // Would this update deactivate or demote the last remaining active admin,
 // locking everyone out of admin-only actions? Checked before isActive:false
@@ -96,7 +96,9 @@ export const listUsers = async (req, res) => {
 
 export const listDirectory = async (req, res) => {
   try {
-    const users = await User.find()
+    const scope = await resolveDepartmentScope(req.user);
+    const filter = scope ? { team: { $in: scope.teamIds } } : {};
+    const users = await User.find(filter)
       .select("name role designation department team")
       .populate("department", "name")
       .populate("team", "name");

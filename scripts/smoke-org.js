@@ -10,11 +10,12 @@ const run = async () => {
   const auth = { headers: { Authorization: `Bearer ${login.data.data.accessToken}` } };
 
   const memberEmail = `orgmember+${Date.now()}@wos.local`;
-  await axios.post(
+  const memberCreate = await axios.post(
     `${BASE}/users`,
     { name: "Org Member", email: memberEmail, password: "memberpass123", role: "member" },
     auth
   );
+  const memberId = memberCreate.data.data.user._id;
   const memberLogin = await axios.post(`${BASE}/auth/login`, {
     email: memberEmail,
     password: "memberpass123",
@@ -80,6 +81,10 @@ const run = async () => {
   assert.equal(teamUpdated.data.data.team.name, "Backend Updated", "admin updates team");
 
   // Directory (any authenticated role, no email/password)
+  // Task 2's department scoping fails closed for teamless users (they'd only
+  // see themselves) — give this fixture a team so the "directory returns
+  // users" assertion below still exercises a real, non-trivial scope.
+  await axios.patch(`${BASE}/users/${memberId}`, { team: teamId }, auth);
   const directory = await axios.get(`${BASE}/users/directory`, memberAuth);
   assert.equal(directory.status, 200, "member can view directory");
   const users = directory.data.data.users;
