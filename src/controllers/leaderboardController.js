@@ -2,7 +2,7 @@ import Activity from "../models/Activity.js";
 import Task from "../models/Task.js";
 import User from "../models/User.js";
 import { pointsForCompletedTask } from "../utils/points.js";
-import { getPointsByPriority, setPointsByPriority } from "../utils/pointsConfig.js";
+import { getPointsByPriority, setPointsByPriority, getPenalties } from "../utils/pointsConfig.js";
 import { getManagedTeamIds } from "../utils/subadminScope.js";
 
 const mondayOf = (date) => {
@@ -169,7 +169,11 @@ export const getLeaderboard = async (req, res) => {
 };
 
 export const getPointsConfig = async (req, res) => {
-  return res.json({ success: true, message: "Points config fetched", data: getPointsByPriority() });
+  return res.json({
+    success: true,
+    message: "Points config fetched",
+    data: { ...getPointsByPriority(), penalties: getPenalties() },
+  });
 };
 
 export const updatePointsConfig = async (req, res) => {
@@ -182,7 +186,11 @@ export const updatePointsConfig = async (req, res) => {
       }
     }
     const updated = await setPointsByPriority(values);
-    return res.json({ success: true, message: "Points config updated", data: updated });
+    return res.json({
+      success: true,
+      message: "Points config updated",
+      data: { ...updated, penalties: getPenalties() },
+    });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ success: false, message: "Something went wrong" });

@@ -67,6 +67,15 @@ const run = async () => {
     "moving the same task out of client_review while still past deadline makes it overdue again"
   );
 
+  // --- Task 2: penalties are part of the points config, with correct defaults ---
+
+  const configBefore = await axios.get(`${BASE}/leaderboard/points-config`, member.auth);
+  assert.deepEqual(
+    configBefore.data.data.penalties,
+    { completedLate: 5, overdue: 2, bug: 1 },
+    "default penalty values match the spec"
+  );
+
   console.log("smoke-accountability: all checks passed");
 };
 

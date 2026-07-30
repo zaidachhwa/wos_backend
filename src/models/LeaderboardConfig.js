@@ -9,6 +9,11 @@ const leaderboardConfigSchema = new mongoose.Schema(
       high: { type: Number, required: true },
       critical: { type: Number, required: true },
     },
+    penalties: {
+      completedLate: { type: Number, required: true },
+      overdue: { type: Number, required: true },
+      bug: { type: Number, required: true },
+    },
   },
   { timestamps: true }
 );
