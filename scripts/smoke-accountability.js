@@ -109,6 +109,39 @@ const run = async () => {
     assert.equal(restore.status, 200, "points/penalties config restore succeeded");
   }
 
+  // --- Task 4: bugs require at least one module, and log a penalty activity ---
+
+  const bugNoModule = await axios.post(
+    `${BASE}/tasks`,
+    { project: projectId, title: "Bug with no module", type: "bug", assignees: [member.userId], priority: "high" },
+    { ...manager.auth, validateStatus: () => true }
+  );
+  assert.equal(bugNoModule.status, 400, "a bug with no modules is rejected");
+
+  const projectModule = await axios.post(
+    `${BASE}/projects/${projectId}/modules`,
+    { name: `Smoke Module ${Date.now()}` },
+    manager.auth
+  );
+  const moduleId = projectModule.data.data.module._id;
+
+  const bug = await axios.post(
+    `${BASE}/tasks`,
+    {
+      project: projectId,
+      title: "Real bug",
+      type: "bug",
+      reference: "Found while testing checkout",
+      modules: [moduleId],
+      assignees: [member.userId],
+      priority: "medium",
+    },
+    manager.auth
+  );
+  assert.equal(bug.status, 201);
+  assert.equal(bug.data.data.task.type, "bug", "the created task is marked as a bug");
+  assert.equal(bug.data.data.task.reference, "Found while testing checkout");
+
   console.log("smoke-accountability: all checks passed");
 };
 

@@ -8,6 +8,7 @@ import { canViewProject, visibilityFilter, idOf } from "./projectController.js";
 import { paginationParams, paginationMeta } from "../utils/pagination.js";
 import { validateTimeSlot } from "../utils/taskDates.js";
 import { maxBonusFor } from "../utils/points.js";
+import { getPenalties } from "../utils/pointsConfig.js";
 
 const SUBLEAD_PLUS = ["admin", "manager", "subadmin", "sublead"];
 // Deliberately excludes subadmin: unlike task-editing (SUBLEAD_PLUS), comment
@@ -32,6 +33,8 @@ const FULL_FIELDS = [
   "subtasks",
   "blockedBy",
   "recurrence",
+  "type",
+  "reference",
 ];
 const ASSIGNEE_FIELDS = ["status", "actualHours", "subtasks"];
 
@@ -52,6 +55,8 @@ export const createTask = async (req, res) => {
       labels,
       blockedBy,
       recurrence,
+      type,
+      reference,
     } = req.body;
 
     const timeSlotError = validateTimeSlot({ deadline, startTime, endTime });
@@ -71,6 +76,9 @@ export const createTask = async (req, res) => {
       if (!projectModule) {
         return res.status(400).json({ success: false, message: "module must belong to the project" });
       }
+    }
+    if (type === "bug" && !(modules || []).length) {
+      return res.status(400).json({ success: false, message: "Bugs must be tagged to at least one module" });
     }
 
     // Members can propose work, but only for themselves — assigning others
@@ -93,6 +101,8 @@ export const createTask = async (req, res) => {
       labels: labels || [],
       blockedBy: blockedBy || [],
       recurrence: recurrence || null,
+      type: type || "task",
+      reference: reference || "",
       createdBy: req.user._id,
       approvalStatus: isMember ? "pending" : "not_required",
     });
@@ -138,6 +148,26 @@ export const createTask = async (req, res) => {
           user: userId,
           type: "task_assigned",
           title: `Assigned to task "${task.title}"`,
+          link: `/tasks/${task._id}`,
+        });
+      }
+    }
+
+    if (task.type === "bug") {
+      const bugPenalty = getPenalties().bug;
+      recordActivity({
+        actor: req.user._id,
+        action: "bug_logged",
+        entityType: "task",
+        entityId: task._id,
+        project: project._id,
+        meta: { title: task.title, points: -bugPenalty, users: task.assignees.map(String) },
+      });
+      for (const userId of task.assignees) {
+        notify({
+          user: userId,
+          type: "points_awarded",
+          title: `-${bugPenalty} pts: bug logged — "${task.title}"`,
           link: `/tasks/${task._id}`,
         });
       }
@@ -352,6 +382,12 @@ export const updateTask = async (req, res) => {
       if (!projectModule) {
         return res.status(400).json({ success: false, message: "module must belong to the project" });
       }
+    }
+
+    const resultingType = "type" in req.body ? req.body.type : task.type;
+    const resultingModules = "modules" in req.body ? req.body.modules : task.modules;
+    if (resultingType === "bug" && !(resultingModules || []).length) {
+      return res.status(400).json({ success: false, message: "Bugs must be tagged to at least one module" });
     }
 
     const prevAssignees = task.assignees.map((a) => String(a));

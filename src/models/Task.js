@@ -60,6 +60,13 @@ const taskSchema = new mongoose.Schema(
     blockedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: "Task" }],
     // Present + non-null means "recurring"; null means one-off (default).
     recurrence: { type: recurrenceSchema, default: null },
+    // "bug" reuses every Task mechanic (assignment, status flow, comments,
+    // kanban, points) — see 2026-07-30-task-accountability-design.md.
+    type: { type: String, enum: ["task", "bug"], default: "task" },
+    reference: { type: String, default: "" },
+    // Guards the one-time overdue-penalty sweep (services/overdueSweep.js)
+    // from double-deducting the same task.
+    overduePenaltyApplied: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
