@@ -1,6 +1,6 @@
 import Task from "../models/Task.js";
 import { OVERDUE_EXEMPT_STATUSES } from "../constants/enums.constants.js";
-import { combineDeadlineAndTime, endOfDayLocal } from "../utils/taskDates.js";
+import { isTaskOverdue } from "../utils/taskDates.js";
 import { getPenalties } from "../utils/pointsConfig.js";
 import { recordActivity, notify } from "../utils/record.js";
 
@@ -18,11 +18,17 @@ export const applyOverduePenalties = async (now = new Date()) => {
   let processed = 0;
 
   for (const task of candidates) {
-    const cutoff = task.endTime ? combineDeadlineAndTime(task.deadline, task.endTime) : endOfDayLocal(task.deadline);
-    if (cutoff >= now) continue;
+    if (!isTaskOverdue(task, now)) continue;
 
-    task.overduePenaltyApplied = true;
-    await task.save();
+    // Atomic claim: only proceed if this call is the one that actually
+    // flips overduePenaltyApplied false -> true. Guards against two
+    // concurrent sweeps (manual trigger + setInterval tick, or overlapping
+    // ticks) both reading the same not-yet-applied task and double-penalizing.
+    const updated = await Task.findOneAndUpdate(
+      { _id: task._id, overduePenaltyApplied: false },
+      { $set: { overduePenaltyApplied: true } }
+    );
+    if (!updated) continue; // another concurrent sweep already claimed this task
 
     recordActivity({
       actor: null,

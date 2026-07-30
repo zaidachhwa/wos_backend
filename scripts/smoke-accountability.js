@@ -171,6 +171,32 @@ const run = async () => {
   );
   assert.equal(memberSweep.status, 403, "only admins can trigger the sweep");
 
+  // --- Task 5 fix: two concurrent sweeps must not double-penalize the same task ---
+
+  const raceTask = await axios.post(
+    `${BASE}/tasks`,
+    {
+      project: projectId,
+      title: "Race condition overdue task",
+      assignees: [member.userId],
+      priority: "medium",
+      deadline: yesterday(),
+    },
+    manager.auth
+  );
+  assert.equal(raceTask.status, 201);
+
+  const [raceSweepA, raceSweepB] = await Promise.all([
+    axios.post(`${BASE}/leaderboard/run-overdue-sweep`, {}, adminAuth),
+    axios.post(`${BASE}/leaderboard/run-overdue-sweep`, {}, adminAuth),
+  ]);
+  const totalProcessed = raceSweepA.data.data.processed + raceSweepB.data.data.processed;
+  assert.equal(
+    totalProcessed,
+    1,
+    "two concurrent sweeps must claim the newly-overdue task exactly once between them, not twice"
+  );
+
   console.log("smoke-accountability: all checks passed");
 };
 
