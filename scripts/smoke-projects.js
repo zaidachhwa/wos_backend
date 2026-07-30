@@ -392,6 +392,66 @@ const run = async () => {
     "the task is hard-deleted once its last remaining module is deleted"
   );
 
+  // --- Team filter ---------------------------------------------------------
+  // Project has no team field of its own — "?team=" filters by whether the
+  // project's manager or any member is on that team (User.team).
+
+  const dept = await axios.post(`${BASE}/departments`, { name: `Smoke Dept ${Date.now()}` }, adminAuth);
+  const deptId = dept.data.data.department._id;
+  const team = await axios.post(`${BASE}/teams`, { name: `Smoke Team ${Date.now()}`, department: deptId }, adminAuth);
+  const teamId = team.data.data.team._id;
+
+  const teamManagerEmail = `teammanager+${Date.now()}@wos.local`;
+  await axios.post(
+    `${BASE}/users`,
+    { name: "Smoke Team Manager", email: teamManagerEmail, password: "smokepass123", role: "manager", team: teamId },
+    adminAuth
+  );
+  const teamManagerLogin = await axios.post(`${BASE}/auth/login`, { email: teamManagerEmail, password: "smokepass123" });
+  const teamManagerId = teamManagerLogin.data.data.user._id;
+  const teamManagerAuth = { headers: { Authorization: `Bearer ${teamManagerLogin.data.data.accessToken}` } };
+
+  const teamProject = await axios.post(
+    `${BASE}/projects`,
+    { name: `Smoke Team Project ${Date.now()}`, manager: teamManagerId },
+    teamManagerAuth
+  );
+  const teamProjectId = teamProject.data.data.project._id;
+
+  const otherDept = await axios.post(`${BASE}/departments`, { name: `Smoke Other Dept ${Date.now()}` }, adminAuth);
+  const subadmin = await axios.post(
+    `${BASE}/users`,
+    {
+      name: "Smoke Subadmin",
+      email: `subadmin+${Date.now()}@wos.local`,
+      password: "smokepass123",
+      role: "subadmin",
+      managedDepartment: otherDept.data.data.department._id,
+    },
+    adminAuth
+  );
+  const subadminLogin = await axios.post(`${BASE}/auth/login`, {
+    email: subadmin.data.data.user.email,
+    password: "smokepass123",
+  });
+  const subadminAuth = { headers: { Authorization: `Bearer ${subadminLogin.data.data.accessToken}` } };
+
+  const filtered = await axios.get(`${BASE}/projects?team=${teamId}`, adminAuth);
+  const filteredIds = filtered.data.data.projects.map((p) => p._id);
+  assert.ok(filteredIds.includes(teamProjectId), "?team= includes a project managed by someone on that team");
+  assert.ok(!filteredIds.includes(projectId), "?team= excludes a project whose manager/members aren't on that team");
+
+  const subadminOutOfScope = await axios.get(`${BASE}/projects?team=${teamId}`, {
+    ...subadminAuth,
+    validateStatus: () => true,
+  });
+  assert.equal(
+    subadminOutOfScope.status, 403,
+    "a subadmin querying a team outside their managed department is forbidden"
+  );
+
+  await axios.delete(`${BASE}/projects/${teamProjectId}`, adminAuth);
+
   // --- Delete ------------------------------------------------------------
 
   const deleteByManagerForbidden = await axios.delete(`${BASE}/projects/${projectId}`, {

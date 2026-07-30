@@ -1,10 +1,11 @@
 import Project from "../models/Project.js";
 import ProjectModule from "../models/ProjectModule.js";
 import Task from "../models/Task.js";
+import User from "../models/User.js";
 import { recordActivity, notify } from "../utils/record.js";
 import { computeProjectProgress, modulesWithProgress } from "../utils/progress.js";
 import { paginationParams, paginationMeta } from "../utils/pagination.js";
-import { getManagedUserIds } from "../utils/subadminScope.js";
+import { getManagedUserIds, getManagedTeamIds } from "../utils/subadminScope.js";
 
 // project.manager/members may be a raw ObjectId or a populated User doc
 // (getProject populates them for the response) — always compare by _id.
@@ -104,6 +105,26 @@ export const listProjects = async (req, res) => {
     if (req.query.search) {
       const escaped = req.query.search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       filter.name = { $regex: escaped, $options: "i" };
+    }
+    if (req.query.team) {
+      // Project has no team field of its own — team membership is a User
+      // property, so "this project's team" means its manager or any member
+      // is on that team. Same subadmin-scope check as the leaderboard's
+      // ?team= filter (getLeaderboard).
+      if (req.user.role === "subadmin") {
+        const managedTeamIds = (await getManagedTeamIds(req.user.managedDepartment)).map(String);
+        if (!managedTeamIds.includes(String(req.query.team))) {
+          return res.status(403).json({ success: false, message: "Forbidden" });
+        }
+      }
+      const teamUserIds = await User.find({ team: req.query.team }).distinct("_id");
+      const teamCondition = { $or: [{ manager: { $in: teamUserIds } }, { members: { $in: teamUserIds } }] };
+      if (filter.$or) {
+        filter.$and = [{ $or: filter.$or }, teamCondition];
+        delete filter.$or;
+      } else {
+        Object.assign(filter, teamCondition);
+      }
     }
     const pageParams = paginationParams(req.query);
     const total = await Project.countDocuments(filter);
