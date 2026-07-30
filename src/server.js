@@ -19,7 +19,7 @@ const start = async () => {
   try {
     await connectDB();
     await loadPointsConfig();
-    await applyOverduePenalties();
+    applyOverduePenalties().catch((error) => console.error("overdue sweep failed:", error.message));
     setInterval(() => {
       applyOverduePenalties().catch((error) => console.error("overdue sweep failed:", error.message));
     }, 2 * 60 * 1000);

@@ -11,7 +11,8 @@ export const applyOverduePenalties = async (now = new Date()) => {
   const candidates = await Task.find({
     deadline: { $ne: null },
     status: { $nin: OVERDUE_EXEMPT_STATUSES },
-    overduePenaltyApplied: false,
+    approvalStatus: { $nin: ["pending", "rejected"] },
+    overduePenaltyApplied: { $ne: true },
   });
 
   const overduePenalty = getPenalties().overdue;
@@ -25,7 +26,7 @@ export const applyOverduePenalties = async (now = new Date()) => {
     // concurrent sweeps (manual trigger + setInterval tick, or overlapping
     // ticks) both reading the same not-yet-applied task and double-penalizing.
     const updated = await Task.findOneAndUpdate(
-      { _id: task._id, overduePenaltyApplied: false },
+      { _id: task._id, overduePenaltyApplied: { $ne: true } },
       { $set: { overduePenaltyApplied: true } }
     );
     if (!updated) continue; // another concurrent sweep already claimed this task

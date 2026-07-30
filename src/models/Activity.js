@@ -19,5 +19,6 @@ const activitySchema = new mongoose.Schema(
 );
 
 activitySchema.index({ project: 1, createdAt: -1 });
+activitySchema.index({ entityType: 1, entityId: 1, createdAt: 1 });
 
 export default mongoose.model("Activity", activitySchema);

@@ -189,8 +189,9 @@ export const getPointsConfig = async (req, res) => {
   });
 };
 
-const validateNonNegative = (values, label) => {
-  for (const [key, val] of Object.entries(values)) {
+const validateNonNegative = (values, requiredKeys, label) => {
+  for (const key of requiredKeys) {
+    const val = values[key];
     if (typeof val !== "number" || !Number.isFinite(val) || val < 0) {
       return `${label}.${key} must be a non-negative number`;
     }
@@ -211,9 +212,11 @@ export const runOverdueSweep = async (req, res) => {
 export const updatePointsConfig = async (req, res) => {
   try {
     const { pointsByPriority, penalties } = req.body;
-    const pointsError = pointsByPriority && validateNonNegative(pointsByPriority, "pointsByPriority");
+    const pointsError =
+      pointsByPriority && validateNonNegative(pointsByPriority, ["low", "medium", "high", "critical"], "pointsByPriority");
     if (pointsError) return res.status(400).json({ success: false, message: pointsError });
-    const penaltiesError = penalties && validateNonNegative(penalties, "penalties");
+    const penaltiesError =
+      penalties && validateNonNegative(penalties, ["completedLate", "overdue", "bug"], "penalties");
     if (penaltiesError) return res.status(400).json({ success: false, message: penaltiesError });
 
     const updatedPoints = pointsByPriority ? await setPointsByPriority(pointsByPriority) : getPointsByPriority();
