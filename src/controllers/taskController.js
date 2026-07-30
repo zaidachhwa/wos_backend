@@ -278,11 +278,12 @@ export const rejectTask = async (req, res) => {
 
 export const listTasks = async (req, res) => {
   try {
-    const { project, module, assignee, status, priority, search, dueBefore, dueAfter, approvalStatus } = req.query;
+    const { project, module, assignee, status, priority, search, dueBefore, dueAfter, approvalStatus, type } = req.query;
     const filter = {};
     if (module) filter.modules = module;
     if (status) filter.status = status;
     if (priority) filter.priority = priority;
+    if (type) filter.type = type;
     if (approvalStatus) filter.approvalStatus = approvalStatus;
     if (assignee) filter.assignees = assignee === "me" ? req.user._id : assignee;
     if (search) {
