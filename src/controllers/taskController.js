@@ -2,6 +2,7 @@ import Project from "../models/Project.js";
 import ProjectModule from "../models/ProjectModule.js";
 import Task from "../models/Task.js";
 import User from "../models/User.js";
+import Activity from "../models/Activity.js";
 import { recordActivity, notify } from "../utils/record.js";
 import { broadcast } from "../utils/io.js";
 import { canViewProject, visibilityFilter, idOf } from "./projectController.js";
@@ -9,6 +10,7 @@ import { paginationParams, paginationMeta } from "../utils/pagination.js";
 import { validateTimeSlot } from "../utils/taskDates.js";
 import { maxBonusFor } from "../utils/points.js";
 import { getPenalties } from "../utils/pointsConfig.js";
+import { computeStatusDurations } from "../utils/statusDurations.js";
 
 const SUBLEAD_PLUS = ["admin", "manager", "subadmin", "sublead"];
 // Deliberately excludes subadmin: unlike task-editing (SUBLEAD_PLUS), comment
@@ -340,7 +342,14 @@ export const getTask = async (req, res) => {
     if (!project || !(await canViewProject(req.user, project))) {
       return res.status(403).json({ success: false, message: "Forbidden" });
     }
-    return res.json({ success: true, message: "Task fetched", data: { task } });
+
+    const activities = await Activity.find({ entityType: "task", entityId: task._id })
+      .select("meta createdAt")
+      .lean();
+    const { durationsMs, totalWorkingMs } = computeStatusDurations(task, activities);
+    const taskWithTiming = { ...task.toObject(), statusDurations: durationsMs, totalWorkingMs };
+
+    return res.json({ success: true, message: "Task fetched", data: { task: taskWithTiming } });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ success: false, message: "Something went wrong" });

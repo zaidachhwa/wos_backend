@@ -217,6 +217,32 @@ const run = async () => {
   // tasks get penalized once section 5's sweeps run). No completions yet this run.
   assert.equal(penaltyPoints, -7, "bug and multiple overdue penalties net together correctly, going negative");
 
+  // --- Task 7: time-in-status is reconstructed from the status-change activity log ---
+
+  const timedTask = await axios.post(
+    `${BASE}/tasks`,
+    { project: projectId, title: "Timed task", assignees: [member.userId], priority: "low" },
+    manager.auth
+  );
+  const timedTaskId = timedTask.data.data.task._id;
+
+  await axios.patch(`${BASE}/tasks/${timedTaskId}`, { status: "in_progress" }, member.auth);
+  await sleep(1000);
+  await axios.patch(`${BASE}/tasks/${timedTaskId}`, { status: "review" }, member.auth);
+  await sleep(500);
+  await axios.patch(`${BASE}/tasks/${timedTaskId}`, { status: "completed" }, member.auth);
+  await sleep(200); // let the fire-and-forget status-change Activity writes land
+
+  const fetched = await axios.get(`${BASE}/tasks/${timedTaskId}`, member.auth);
+  const { statusDurations, totalWorkingMs } = fetched.data.data.task;
+  assert.ok(statusDurations.in_progress >= 900, `in_progress duration recorded (got ${statusDurations.in_progress}ms)`);
+  assert.ok(statusDurations.review >= 400, `review duration recorded (got ${statusDurations.review}ms)`);
+  assert.equal(
+    totalWorkingMs,
+    statusDurations.in_progress + (statusDurations.review || 0) + (statusDurations.testing || 0),
+    "totalWorkingMs sums exactly in_progress + review + testing"
+  );
+
   console.log("smoke-accountability: all checks passed");
 };
 
