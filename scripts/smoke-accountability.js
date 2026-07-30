@@ -76,6 +76,39 @@ const run = async () => {
     "default penalty values match the spec"
   );
 
+  // --- Task 3: admins can update penalties; validation matches the priority-points pattern ---
+
+  const badPenalty = await axios.put(
+    `${BASE}/leaderboard/points-config`,
+    { pointsByPriority: configBefore.data.data.pointsByPriority, penalties: { completedLate: -1, overdue: 2, bug: 1 } },
+    { ...adminAuth, validateStatus: () => true }
+  );
+  assert.equal(badPenalty.status, 400, "a negative penalty value is rejected");
+
+  const memberPut = await axios.put(
+    `${BASE}/leaderboard/points-config`,
+    { pointsByPriority: configBefore.data.data.pointsByPriority, penalties: { completedLate: 9, overdue: 2, bug: 1 } },
+    { ...member.auth, validateStatus: () => true }
+  );
+  assert.equal(memberPut.status, 403, "only admins can change penalty values");
+
+  try {
+    const goodPut = await axios.put(
+      `${BASE}/leaderboard/points-config`,
+      { pointsByPriority: configBefore.data.data.pointsByPriority, penalties: { completedLate: 9, overdue: 3, bug: 2 } },
+      adminAuth
+    );
+    assert.equal(goodPut.status, 200);
+    assert.deepEqual(goodPut.data.data.penalties, { completedLate: 9, overdue: 3, bug: 2 }, "updated penalties echoed back");
+  } finally {
+    const restore = await axios.put(
+      `${BASE}/leaderboard/points-config`,
+      { pointsByPriority: configBefore.data.data.pointsByPriority, penalties: configBefore.data.data.penalties },
+      adminAuth
+    );
+    assert.equal(restore.status, 200, "points/penalties config restore succeeded");
+  }
+
   console.log("smoke-accountability: all checks passed");
 };
 

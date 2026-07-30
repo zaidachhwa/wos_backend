@@ -2,7 +2,7 @@ import Activity from "../models/Activity.js";
 import Task from "../models/Task.js";
 import User from "../models/User.js";
 import { pointsForCompletedTask } from "../utils/points.js";
-import { getPointsByPriority, setPointsByPriority, getPenalties } from "../utils/pointsConfig.js";
+import { getPointsByPriority, setPointsByPriority, getPenalties, setPenalties } from "../utils/pointsConfig.js";
 import { getManagedTeamIds } from "../utils/subadminScope.js";
 
 const mondayOf = (date) => {
@@ -172,24 +172,34 @@ export const getPointsConfig = async (req, res) => {
   return res.json({
     success: true,
     message: "Points config fetched",
-    data: { ...getPointsByPriority(), penalties: getPenalties() },
+    data: { pointsByPriority: getPointsByPriority(), penalties: getPenalties() },
   });
+};
+
+const validateNonNegative = (values, label) => {
+  for (const [key, val] of Object.entries(values)) {
+    if (typeof val !== "number" || !Number.isFinite(val) || val < 0) {
+      return `${label}.${key} must be a non-negative number`;
+    }
+  }
+  return null;
 };
 
 export const updatePointsConfig = async (req, res) => {
   try {
-    const { low, medium, high, critical } = req.body;
-    const values = { low, medium, high, critical };
-    for (const [key, val] of Object.entries(values)) {
-      if (typeof val !== "number" || !Number.isFinite(val) || val < 0) {
-        return res.status(400).json({ success: false, message: `${key} must be a non-negative number` });
-      }
-    }
-    const updated = await setPointsByPriority(values);
+    const { pointsByPriority, penalties } = req.body;
+    const pointsError = pointsByPriority && validateNonNegative(pointsByPriority, "pointsByPriority");
+    if (pointsError) return res.status(400).json({ success: false, message: pointsError });
+    const penaltiesError = penalties && validateNonNegative(penalties, "penalties");
+    if (penaltiesError) return res.status(400).json({ success: false, message: penaltiesError });
+
+    const updatedPoints = pointsByPriority ? await setPointsByPriority(pointsByPriority) : getPointsByPriority();
+    const updatedPenalties = penalties ? await setPenalties(penalties) : getPenalties();
+
     return res.json({
       success: true,
       message: "Points config updated",
-      data: { ...updated, penalties: getPenalties() },
+      data: { pointsByPriority: updatedPoints, penalties: updatedPenalties },
     });
   } catch (error) {
     console.error(error);

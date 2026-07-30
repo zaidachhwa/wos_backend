@@ -210,26 +210,30 @@ const run = async () => {
 
   const original = await axios.get(`${BASE}/leaderboard/points-config`, member.auth);
   assert.equal(original.status, 200, "any authenticated user can read the point config");
-  const defaults = original.data.data;
+  const defaults = original.data.data.pointsByPriority;
 
   const memberPut = await axios.put(
     `${BASE}/leaderboard/points-config`,
-    { ...defaults, low: 50 },
+    { pointsByPriority: { ...defaults, low: 50 } },
     { ...member.auth, validateStatus: () => true }
   );
   assert.equal(memberPut.status, 403, "only admins can change point values");
 
   const badPut = await axios.put(
     `${BASE}/leaderboard/points-config`,
-    { ...defaults, low: -1 },
+    { pointsByPriority: { ...defaults, low: -1 } },
     { ...adminAuth, validateStatus: () => true }
   );
   assert.equal(badPut.status, 400, "negative point values are rejected");
 
   try {
-    const goodPut = await axios.put(`${BASE}/leaderboard/points-config`, { ...defaults, low: 50 }, adminAuth);
+    const goodPut = await axios.put(
+      `${BASE}/leaderboard/points-config`,
+      { pointsByPriority: { ...defaults, low: 50 } },
+      adminAuth
+    );
     assert.equal(goodPut.status, 200);
-    assert.equal(goodPut.data.data.low, 50, "updated value is echoed back");
+    assert.equal(goodPut.data.data.pointsByPriority.low, 50, "updated value is echoed back");
 
     const configTask = await axios.post(
       `${BASE}/tasks`,
@@ -251,9 +255,13 @@ const run = async () => {
     // Leave shared scoring config exactly as we found it. Asserted (not just
     // fired) — a silent failure here would leave the live scoring corrupted
     // for every subsequent run, which is exactly what happened once before.
-    const restore = await axios.put(`${BASE}/leaderboard/points-config`, defaults, adminAuth);
+    const restore = await axios.put(
+      `${BASE}/leaderboard/points-config`,
+      { pointsByPriority: defaults },
+      adminAuth
+    );
     assert.equal(restore.status, 200, "points config restore succeeded");
-    assert.deepEqual(restore.data.data, defaults, "points config restored to its exact original values");
+    assert.deepEqual(restore.data.data.pointsByPriority, defaults, "points config restored to its exact original values");
   }
 
   console.log("smoke-leaderboard: all checks passed");
