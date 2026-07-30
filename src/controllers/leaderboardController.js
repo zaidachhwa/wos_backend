@@ -4,6 +4,7 @@ import User from "../models/User.js";
 import { pointsForCompletedTask } from "../utils/points.js";
 import { getPointsByPriority, setPointsByPriority, getPenalties, setPenalties } from "../utils/pointsConfig.js";
 import { getManagedTeamIds } from "../utils/subadminScope.js";
+import { applyOverduePenalties } from "../services/overdueSweep.js";
 
 const mondayOf = (date) => {
   const d = new Date(date);
@@ -183,6 +184,16 @@ const validateNonNegative = (values, label) => {
     }
   }
   return null;
+};
+
+export const runOverdueSweep = async (req, res) => {
+  try {
+    const result = await applyOverduePenalties();
+    return res.json({ success: true, message: "Overdue sweep completed", data: result });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: "Something went wrong" });
+  }
 };
 
 export const updatePointsConfig = async (req, res) => {

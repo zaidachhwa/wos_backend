@@ -4,7 +4,11 @@ import { ACTIVITY_ENTITY_TYPES } from "../constants/enums.constants.js";
 
 const activitySchema = new mongoose.Schema(
   {
-    actor: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    // Most activity is attributed to the acting user. A few are system-
+    // triggered (e.g. the overdue-penalty sweep in services/overdueSweep.js)
+    // and have no human actor — ActivityFeed.jsx already renders these as
+    // "Someone".
+    actor: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     action: { type: String, required: true },
     entityType: { type: String, enum: ACTIVITY_ENTITY_TYPES, required: true },
     entityId: { type: mongoose.Schema.Types.ObjectId, required: true },

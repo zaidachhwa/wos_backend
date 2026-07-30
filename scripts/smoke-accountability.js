@@ -142,6 +142,35 @@ const run = async () => {
   assert.equal(bug.data.data.task.type, "bug", "the created task is marked as a bug");
   assert.equal(bug.data.data.task.reference, "Found while testing checkout");
 
+  // --- Task 5: the overdue sweep penalizes an open, past-deadline task exactly once ---
+
+  const overdueOpenTask = await axios.post(
+    `${BASE}/tasks`,
+    {
+      project: projectId,
+      title: "Still-open overdue task",
+      assignees: [member.userId],
+      priority: "medium",
+      deadline: yesterday(),
+    },
+    manager.auth
+  );
+  const overdueOpenTaskId = overdueOpenTask.data.data.task._id;
+
+  const sweep1 = await axios.post(`${BASE}/leaderboard/run-overdue-sweep`, {}, adminAuth);
+  assert.equal(sweep1.status, 200);
+  assert.ok(sweep1.data.data.processed >= 1, "the sweep processes at least the one overdue task just created");
+
+  const sweep2 = await axios.post(`${BASE}/leaderboard/run-overdue-sweep`, {}, adminAuth);
+  assert.equal(sweep2.data.data.processed, 0, "a second sweep immediately after finds nothing new to penalize");
+
+  const memberSweep = await axios.post(
+    `${BASE}/leaderboard/run-overdue-sweep`,
+    {},
+    { ...member.auth, validateStatus: () => true }
+  );
+  assert.equal(memberSweep.status, 403, "only admins can trigger the sweep");
+
   console.log("smoke-accountability: all checks passed");
 };
 
