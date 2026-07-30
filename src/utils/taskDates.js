@@ -1,3 +1,5 @@
+import { OVERDUE_EXEMPT_STATUSES } from "../constants/enums.constants.js";
+
 // Combines a deadline's calendar date with an "HH:mm" wall-clock time into
 // an absolute instant. The date portion is read from `deadline`'s UTC ISO
 // components (timezone-safe, since `deadline` is stored from a date-only
@@ -24,7 +26,7 @@ export const endOfDayLocal = (deadline) => {
 };
 
 export const isTaskOverdue = (task, now = new Date()) => {
-  if (!task.deadline || task.status === "completed") return false;
+  if (!task.deadline || OVERDUE_EXEMPT_STATUSES.includes(task.status)) return false;
   const cutoff = task.endTime ? combineDeadlineAndTime(task.deadline, task.endTime) : endOfDayLocal(task.deadline);
   return cutoff < now;
 };

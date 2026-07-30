@@ -10,9 +10,14 @@ export const TASK_STATUSES = [
   "in_progress",
   "review",
   "testing",
+  "client_review",
   "completed",
   "blocked",
 ];
+
+// A task in any of these statuses is never "overdue" — completed work is
+// done, and client_review means the ball is in the client's court, not ours.
+export const OVERDUE_EXEMPT_STATUSES = ["completed", "client_review"];
 
 // A member-created task starts "pending" until its reportingManager (or an
 // admin) approves it; admin/manager/sublead-created tasks skip approval
