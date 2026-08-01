@@ -216,6 +216,31 @@ const run = async () => {
   assert.ok(namesAsManager1.includes(projectA.data.data.project.name), "manager1's project list includes their own Department-A project");
   assert.ok(!namesAsManager1.includes(projectB.data.data.project.name), "manager1's project list excludes the Department-B project");
 
+  // --- Task 6: createProject validates department for scoped roles ---
+
+  const managerCrossDept = await axios.post(
+    `${BASE}/projects`,
+    { name: "Should fail cross-dept", manager: manager1.userId, members: [memberB.userId] },
+    { ...manager1.auth, validateStatus: () => true }
+  );
+  assert.equal(managerCrossDept.status, 400, "a Department-A manager cannot create a project with a Department-B member");
+
+  const managerSameDept = await axios.post(
+    `${BASE}/projects`,
+    { name: `Smoke Same-Dept Project ${Date.now()}`, manager: manager1.userId, members: [memberA2.userId] },
+    manager1.auth
+  );
+  assert.equal(managerSameDept.status, 201, "a Department-A manager CAN create a project with only Department-A members");
+  await axios.delete(`${BASE}/projects/${managerSameDept.data.data.project._id}`, adminAuth);
+
+  const adminCrossDept = await axios.post(
+    `${BASE}/projects`,
+    { name: `Smoke Cross-Dept Project ${Date.now()}`, manager: manager1.userId, members: [memberB.userId] },
+    adminAuth
+  );
+  assert.equal(adminCrossDept.status, 201, "admin (unrestricted) CAN create a project spanning departments");
+  await axios.delete(`${BASE}/projects/${adminCrossDept.data.data.project._id}`, adminAuth);
+
   console.log("smoke-department-scope: all checks passed");
 };
 

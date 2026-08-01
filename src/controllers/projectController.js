@@ -64,6 +64,18 @@ export const visibilityFilter = async (user) => {
 export const createProject = async (req, res) => {
   try {
     const { name, description, manager, members, priority, startDate, deadline, status, type } = req.body;
+    const scope = await resolveDepartmentScope(req.user);
+    if (scope) {
+      const allowedIds = new Set([...scope.userIds.map(String), String(req.user._id)]);
+      const candidateIds = [manager, ...(members || [])].filter(Boolean).map(String);
+      const outOfScope = candidateIds.find((id) => !allowedIds.has(id));
+      if (outOfScope) {
+        return res.status(400).json({
+          success: false,
+          message: `User ${outOfScope} is outside your department`,
+        });
+      }
+    }
     const project = await Project.create({
       name,
       description,

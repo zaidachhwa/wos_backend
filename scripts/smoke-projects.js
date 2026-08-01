@@ -38,8 +38,16 @@ const run = async () => {
     { name: `Smoke Projects Manager Dept ${Date.now()}` },
     adminAuth
   );
-  const manager = await createUser(adminAuth, "manager", { managedDepartment: managerDept.data.data.department._id });
-  const member = await createUser(adminAuth, "member");
+  const managerDeptId = managerDept.data.data.department._id;
+  const managerTeam = await axios.post(
+    `${BASE}/teams`,
+    { name: `Smoke Projects Manager Team ${Date.now()}`, department: managerDeptId },
+    adminAuth
+  );
+  const manager = await createUser(adminAuth, "manager", { managedDepartment: managerDeptId });
+  // member must sit on a team inside managerDept — Task 6 now validates that
+  // createProject's manager/members are within the acting manager's department scope.
+  const member = await createUser(adminAuth, "member", { team: managerTeam.data.data.team._id });
   const outsider = await createUser(adminAuth, "member");
   const outsiderSublead = await createUser(adminAuth, "sublead");
 
