@@ -174,6 +174,23 @@ const run = async () => {
     "a team-less member's default roster includes themselves"
   );
 
+  // --- Task 4: departments/teams listing is department-scoped ---
+
+  const deptsAsMemberA = await axios.get(`${BASE}/departments`, memberA1.auth);
+  const deptNamesA = deptsAsMemberA.data.data.departments.map((d) => d.name);
+  assert.ok(!deptNamesA.includes(deptB.data.data.department.name), "member cannot see Department B in the departments list");
+
+  const teamsAsMemberA = await axios.get(`${BASE}/teams`, memberA1.auth);
+  const teamNamesA = teamsAsMemberA.data.data.teams.map((t) => t.name);
+  assert.ok(!teamNamesA.includes(teamB.data.data.team.name), "member cannot see Team B (Department B) in the teams list");
+  assert.ok(teamNamesA.includes(teamA.data.data.team.name), "member CAN see their own Team A");
+
+  const deptsAsAdmin = await axios.get(`${BASE}/departments`, adminAuth);
+  assert.ok(
+    deptsAsAdmin.data.data.departments.map((d) => d.name).includes(deptB.data.data.department.name),
+    "admin's departments list is unrestricted"
+  );
+
   console.log("smoke-department-scope: all checks passed");
 };
 

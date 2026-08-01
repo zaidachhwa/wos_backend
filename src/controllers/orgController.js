@@ -1,5 +1,6 @@
 import Department from "../models/Department.js";
 import Team from "../models/Team.js";
+import { resolveDepartmentScope } from "../utils/departmentScope.js";
 
 // Departments
 
@@ -17,7 +18,9 @@ export const createDepartment = async (req, res) => {
 
 export const listDepartments = async (req, res) => {
   try {
-    const departments = await Department.find().sort("name");
+    const scope = await resolveDepartmentScope(req.user);
+    const filter = scope ? { _id: scope.departmentId } : {};
+    const departments = await Department.find(filter).sort("name");
     return res.json({ success: true, message: "Departments fetched", data: { departments } });
   } catch (error) {
     console.error(error);
@@ -82,7 +85,9 @@ export const createTeam = async (req, res) => {
 
 export const listTeams = async (req, res) => {
   try {
-    const teams = await Team.find().populate("department", "name").sort("name");
+    const scope = await resolveDepartmentScope(req.user);
+    const filter = scope ? { _id: { $in: scope.teamIds } } : {};
+    const teams = await Team.find(filter).populate("department", "name").sort("name");
     return res.json({ success: true, message: "Teams fetched", data: { teams } });
   } catch (error) {
     console.error(error);
