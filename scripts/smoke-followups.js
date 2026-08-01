@@ -30,7 +30,16 @@ const createUser = async (adminAuth, role, extra = {}) => {
 const run = async () => {
   const adminAuth = await authFor(EMAIL, PASSWORD);
 
-  const manager = await createUser(adminAuth, "manager");
+  // Task 5 (department segregation) requires managedDepartment for the
+  // manager role.
+  const managerDept = await axios.post(
+    `${BASE}/departments`,
+    { name: `Followups Smoke Manager Dept ${Date.now()}` },
+    adminAuth
+  );
+  const managerDeptId = managerDept.data.data.department._id;
+
+  const manager = await createUser(adminAuth, "manager", { managedDepartment: managerDeptId });
   const member = await createUser(adminAuth, "member", { reportingManager: manager.userId });
   const secondReport = await createUser(adminAuth, "member", { reportingManager: manager.userId });
 
@@ -116,7 +125,7 @@ const run = async () => {
   );
   assert.equal(reviewMissing.status, 404, "reviewing a missing follow-up 404s");
 
-  const otherManager = await createUser(adminAuth, "manager");
+  const otherManager = await createUser(adminAuth, "manager", { managedDepartment: managerDeptId });
   const reviewForbidden = await axios.patch(
     `${BASE}/followups/${followUpId}/review`,
     { managerComment: "Not my report" },
