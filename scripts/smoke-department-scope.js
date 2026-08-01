@@ -33,19 +33,24 @@ const run = async () => {
   const deptAId = deptA.data.data.department._id;
   const deptBId = deptB.data.data.department._id;
   const teamA = await axios.post(`${BASE}/teams`, { name: `Smoke Team A ${Date.now()}`, department: deptAId }, adminAuth);
+  // A second team in dept A proves the boundary is the department, not the
+  // team — a team-scoped (rather than department-scoped) filter would wrongly
+  // exclude memberA2 below.
+  const teamA2 = await axios.post(`${BASE}/teams`, { name: `Smoke Team A2 ${Date.now()}`, department: deptAId }, adminAuth);
   const teamB = await axios.post(`${BASE}/teams`, { name: `Smoke Team B ${Date.now()}`, department: deptBId }, adminAuth);
   const teamAId = teamA.data.data.team._id;
+  const teamA2Id = teamA2.data.data.team._id;
   const teamBId = teamB.data.data.team._id;
 
   const memberA1 = await createUser(adminAuth, "member", { team: teamAId });
-  const memberA2 = await createUser(adminAuth, "member", { team: teamAId });
+  const memberA2 = await createUser(adminAuth, "member", { team: teamA2Id });
   const memberB = await createUser(adminAuth, "member", { team: teamBId });
 
   // --- Task 2: directory is department-scoped ---
 
   const dirA1 = await axios.get(`${BASE}/users/directory`, memberA1.auth);
   const namesA1 = dirA1.data.data.users.map((u) => u.name);
-  assert.ok(namesA1.includes(memberA2.name), "same-department sibling (different team not required) is visible");
+  assert.ok(namesA1.includes(memberA2.name), "same-department, different-team sibling is visible");
   assert.ok(!namesA1.includes(memberB.name), "a different department's member is NOT visible in the directory");
 
   const dirAdmin = await axios.get(`${BASE}/users/directory`, adminAuth);
