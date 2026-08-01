@@ -3,6 +3,7 @@ import axios from "axios";
 import mongoose from "mongoose";
 
 import User from "../src/models/User.js";
+import { getLeaderboard } from "../src/controllers/leaderboardController.js";
 
 const BASE = process.env.API_URL || "http://localhost:5000/api";
 const EMAIL = process.env.SEED_ADMIN_EMAIL;
@@ -122,6 +123,56 @@ const run = async () => {
     { ...manager1.auth, validateStatus: () => true }
   );
   assert.equal(csvManagerCrossTeam.status, 403, "a manager cannot use ?team= to reach a team outside their own department");
+
+  // --- fix: a team-less member/sublead's default roster (no ?team=) still
+  // includes themselves. Before the fix, resolveDepartmentScope resolved
+  // them to { teamIds: [] }, and the roster filter only ever read
+  // scope.teamIds, so `team: { $in: [] }` matched nobody — the leaderboard
+  // came back completely empty for a team-less member. -------------------
+  //
+  // Can't reach this over HTTP today: CSV export 403s for member/sublead
+  // unconditionally (isReporter gate, see csvA1 above — pre-existing,
+  // unrelated to this bug), and the JSON view is Monday-locked (today isn't
+  // Monday). So call the real controller in-process against the same
+  // MongoDB, faking Date.prototype.getDay() for just this one call to clear
+  // the lock — this never touches the live dev server or the CSV gate.
+
+  const memberNoTeam = await createUser(adminAuth, "member");
+  await mongoose.connect(process.env.MONGODB_URI);
+  const memberNoTeamDoc = await User.findById(memberNoTeam.userId);
+
+  const realGetDay = Date.prototype.getDay;
+  Date.prototype.getDay = () => 1; // ponytail: fake "today is Monday", this call only
+  let leaderboardResult;
+  const fakeRes = {
+    status() {
+      return this;
+    },
+    json(payload) {
+      leaderboardResult = payload;
+      return this;
+    },
+    setHeader() {},
+    send(payload) {
+      leaderboardResult = payload;
+      return this;
+    },
+  };
+  try {
+    await getLeaderboard({ query: {}, user: memberNoTeamDoc }, fakeRes);
+  } finally {
+    Date.prototype.getDay = realGetDay;
+    await mongoose.disconnect();
+  }
+
+  assert.ok(
+    !leaderboardResult?.data?.locked,
+    "faked-Monday in-process call reaches the roster query, not the lock message"
+  );
+  assert.ok(
+    leaderboardResult.data.rows.some((r) => r.user.name === memberNoTeam.name),
+    "a team-less member's default roster includes themselves"
+  );
 
   console.log("smoke-department-scope: all checks passed");
 };

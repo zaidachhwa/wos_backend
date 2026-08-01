@@ -67,7 +67,7 @@ export const getLeaderboard = async (req, res) => {
         }
         rosterFilter.team = req.query.team;
       } else {
-        rosterFilter.team = { $in: scope.teamIds };
+        rosterFilter.$or = [{ team: { $in: scope.teamIds } }, { _id: req.user._id }];
       }
     }
 
