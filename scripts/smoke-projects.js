@@ -14,10 +14,10 @@ const authFor = async (email, password) => {
   return { headers: { Authorization: `Bearer ${login.data.data.accessToken}` } };
 };
 
-const createUser = async (adminAuth, role) => {
+const createUser = async (adminAuth, role, extra = {}) => {
   const email = `${role}+${Date.now()}+${Math.random().toString(36).slice(2)}@wos.local`;
   const password = "smokepass123";
-  await axios.post(`${BASE}/users`, { name: `Smoke ${role}`, email, password, role }, adminAuth);
+  await axios.post(`${BASE}/users`, { name: `Smoke ${role}`, email, password, role, ...extra }, adminAuth);
   const login = await axios.post(`${BASE}/auth/login`, { email, password });
   return {
     email,
@@ -31,7 +31,14 @@ const run = async () => {
   const adminAuth = await authFor(EMAIL, PASSWORD);
 
   // Setup: a manager, a project member, and an unrelated outsider member.
-  const manager = await createUser(adminAuth, "manager");
+  // Task 5 (department segregation) requires managedDepartment for the
+  // manager role.
+  const managerDept = await axios.post(
+    `${BASE}/departments`,
+    { name: `Smoke Projects Manager Dept ${Date.now()}` },
+    adminAuth
+  );
+  const manager = await createUser(adminAuth, "manager", { managedDepartment: managerDept.data.data.department._id });
   const member = await createUser(adminAuth, "member");
   const outsider = await createUser(adminAuth, "member");
   const outsiderSublead = await createUser(adminAuth, "sublead");
@@ -404,7 +411,14 @@ const run = async () => {
   const teamManagerEmail = `teammanager+${Date.now()}@wos.local`;
   await axios.post(
     `${BASE}/users`,
-    { name: "Smoke Team Manager", email: teamManagerEmail, password: "smokepass123", role: "manager", team: teamId },
+    {
+      name: "Smoke Team Manager",
+      email: teamManagerEmail,
+      password: "smokepass123",
+      role: "manager",
+      team: teamId,
+      managedDepartment: deptId,
+    },
     adminAuth
   );
   const teamManagerLogin = await axios.post(`${BASE}/auth/login`, { email: teamManagerEmail, password: "smokepass123" });

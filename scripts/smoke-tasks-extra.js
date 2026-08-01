@@ -16,10 +16,10 @@ const authFor = async (email, password) => {
   return { headers: { Authorization: `Bearer ${login.data.data.accessToken}` } };
 };
 
-const createUser = async (adminAuth, role) => {
+const createUser = async (adminAuth, role, extra = {}) => {
   const email = `${role}+${Date.now()}+${Math.random().toString(36).slice(2)}@wos.local`;
   const password = "smokepass123";
-  await axios.post(`${BASE}/users`, { name: `Smoke ${role}`, email, password, role }, adminAuth);
+  await axios.post(`${BASE}/users`, { name: `Smoke ${role}`, email, password, role, ...extra }, adminAuth);
   const login = await axios.post(`${BASE}/auth/login`, { email, password });
   return {
     email,
@@ -32,7 +32,14 @@ const createUser = async (adminAuth, role) => {
 const run = async () => {
   const adminAuth = await authFor(EMAIL, PASSWORD);
 
-  const manager = await createUser(adminAuth, "manager");
+  // Task 5 (department segregation) requires managedDepartment for the
+  // manager role.
+  const managerDept = await axios.post(
+    `${BASE}/departments`,
+    { name: `Smoke Tasks Extra Manager Dept ${Date.now()}` },
+    adminAuth
+  );
+  const manager = await createUser(adminAuth, "manager", { managedDepartment: managerDept.data.data.department._id });
   const member = await createUser(adminAuth, "member");
   const outsider = await createUser(adminAuth, "member");
 

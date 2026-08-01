@@ -454,6 +454,11 @@ const run = async () => {
       password: "smokepass123",
       role: "manager",
       team: teamAId,
+      // managedDepartment included so this trips the subadmin role-restriction
+      // (403) rather than the manager/subadmin managedDepartment-required
+      // validation (400) added in Task 5 — this test is about the role
+      // restriction specifically.
+      managedDepartment: deptId,
     },
     { ...subadmin.auth, validateStatus: () => true }
   );
@@ -612,7 +617,11 @@ const run = async () => {
   // admin/subadmin, so the existing admin/subadmin target-role guard must
   // also cover manager.
 
-  const managerInDept = await createUser(adminAuth, "manager", { team: teamAId, department: deptId });
+  const managerInDept = await createUser(adminAuth, "manager", {
+    team: teamAId,
+    department: deptId,
+    managedDepartment: deptId,
+  });
 
   const subadminUpdateManagerForbidden = await axios.patch(
     `${BASE}/users/${managerInDept.userId}`,

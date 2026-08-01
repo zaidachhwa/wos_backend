@@ -30,7 +30,10 @@ const createUser = async (adminAuth, role, extra = {}) => {
 const run = async () => {
   const adminAuth = await authFor(EMAIL, PASSWORD);
 
-  const manager = await createUser(adminAuth, "manager");
+  // Task 5 (department segregation) requires managedDepartment for the
+  // manager role.
+  const dept = await axios.post(`${BASE}/departments`, { name: `Smoke Dashboard Dept ${Date.now()}` }, adminAuth);
+  const manager = await createUser(adminAuth, "manager", { managedDepartment: dept.data.data.department._id });
   const member = await createUser(adminAuth, "member", { reportingManager: manager.userId });
 
   // --- admin dashboard --------------------------------------------------

@@ -1,8 +1,5 @@
 import assert from "node:assert";
 import axios from "axios";
-import mongoose from "mongoose";
-
-import User from "../src/models/User.js";
 
 const BASE = process.env.API_URL || "http://localhost:5000/api";
 const EMAIL = process.env.SEED_ADMIN_EMAIL;
@@ -56,25 +53,20 @@ const weekAhead = () => new Date(Date.now() + 7 * 24 * 3600 * 1000);
 
 const run = async () => {
   const adminAuth = await authFor(EMAIL, PASSWORD);
-  const manager = await createUser(adminAuth, "manager");
   // Task 3 (department segregation) generalized the leaderboard's roster
   // scope to every non-admin role via resolveDepartmentScope, keyed on
-  // managedDepartment. createUser forces managedDepartment to null for any
-  // non-subadmin role (see userController.js — no API path exists to set it
-  // for a manager), so without this workaround (same mongoose pattern as
-  // smoke-department-scope.js) this manager's default roster would be empty
-  // and every assertion below would find nothing.
+  // managedDepartment — so this manager needs one, department created first.
+  // Task 5 closed the gap that used to force a direct Mongoose write here;
+  // managedDepartment is now set through the real createUser API.
   const dept = await axios.post(`${BASE}/departments`, { name: `Smoke Dept ${Date.now()}` }, adminAuth);
   const deptId = dept.data.data.department._id;
+  const manager = await createUser(adminAuth, "manager", { managedDepartment: deptId });
   const memberTeam = await axios.post(
     `${BASE}/teams`,
     { name: `Smoke Member Team ${Date.now()}`, department: deptId },
     adminAuth
   );
   const member = await createUser(adminAuth, "member", { team: memberTeam.data.data.team._id });
-  await mongoose.connect(process.env.MONGODB_URI);
-  await User.findByIdAndUpdate(manager.userId, { managedDepartment: deptId });
-  await mongoose.disconnect();
 
   const project = await axios.post(
     `${BASE}/projects`,
