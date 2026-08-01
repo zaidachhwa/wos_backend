@@ -241,6 +241,15 @@ const run = async () => {
   assert.equal(adminCrossDept.status, 201, "admin (unrestricted) CAN create a project spanning departments");
   await axios.delete(`${BASE}/projects/${adminCrossDept.data.data.project._id}`, adminAuth);
 
+  // --- Task 7: violations endpoint ---
+
+  const violationsAsMember = await axios.get(`${BASE}/department-violations`, { ...memberA1.auth, validateStatus: () => true });
+  assert.equal(violationsAsMember.status, 403, "only admin can read department violations");
+
+  const violationsAsAdmin = await axios.get(`${BASE}/department-violations`, adminAuth);
+  assert.equal(violationsAsAdmin.status, 200);
+  assert.ok(Array.isArray(violationsAsAdmin.data.data.violations), "violations endpoint returns an array");
+
   console.log("smoke-department-scope: all checks passed");
 };
 
