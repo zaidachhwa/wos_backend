@@ -93,6 +93,36 @@ const run = async () => {
     "a manager whose own team sits outside their managed department still sees themselves in their own directory"
   );
 
+  // --- Task 3: leaderboard's default roster (no ?team=) is department-scoped ---
+
+  const csvA1 = await axios.get(`${BASE}/leaderboard?format=csv`, { ...memberA1.auth, validateStatus: () => true });
+  assert.equal(csvA1.status, 403, "a plain member cannot export the csv report (unchanged, pre-existing rule)");
+
+  // createUser forces managedDepartment to null for any non-subadmin role
+  // (see userController.js) — same quirk worked around above for the
+  // directory-fix fixture; set it directly here too.
+  const manager1 = await createUser(adminAuth, "manager", { managedDepartment: deptAId });
+  await mongoose.connect(process.env.MONGODB_URI);
+  await User.findByIdAndUpdate(manager1.userId, { managedDepartment: deptAId });
+  await mongoose.disconnect();
+
+  const csvManagerDefault = await axios.get(`${BASE}/leaderboard?format=csv`, manager1.auth);
+  assert.equal(csvManagerDefault.status, 200);
+  assert.ok(
+    csvManagerDefault.data.includes(memberA1.name) || csvManagerDefault.data.includes(memberA2.name),
+    "Department-A manager's default roster includes at least one Department-A member"
+  );
+  assert.ok(
+    !csvManagerDefault.data.includes(memberB.name),
+    "Department-A manager's default roster (no ?team=) excludes a Department-B member"
+  );
+
+  const csvManagerCrossTeam = await axios.get(
+    `${BASE}/leaderboard?format=csv&team=${teamBId}`,
+    { ...manager1.auth, validateStatus: () => true }
+  );
+  assert.equal(csvManagerCrossTeam.status, 403, "a manager cannot use ?team= to reach a team outside their own department");
+
   console.log("smoke-department-scope: all checks passed");
 };
 

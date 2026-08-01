@@ -1,5 +1,8 @@
 import assert from "node:assert";
 import axios from "axios";
+import mongoose from "mongoose";
+
+import User from "../src/models/User.js";
 
 const BASE = process.env.API_URL || "http://localhost:5000/api";
 const EMAIL = process.env.SEED_ADMIN_EMAIL;
@@ -54,7 +57,24 @@ const weekAhead = () => new Date(Date.now() + 7 * 24 * 3600 * 1000);
 const run = async () => {
   const adminAuth = await authFor(EMAIL, PASSWORD);
   const manager = await createUser(adminAuth, "manager");
-  const member = await createUser(adminAuth, "member");
+  // Task 3 (department segregation) generalized the leaderboard's roster
+  // scope to every non-admin role via resolveDepartmentScope, keyed on
+  // managedDepartment. createUser forces managedDepartment to null for any
+  // non-subadmin role (see userController.js — no API path exists to set it
+  // for a manager), so without this workaround (same mongoose pattern as
+  // smoke-department-scope.js) this manager's default roster would be empty
+  // and every assertion below would find nothing.
+  const dept = await axios.post(`${BASE}/departments`, { name: `Smoke Dept ${Date.now()}` }, adminAuth);
+  const deptId = dept.data.data.department._id;
+  const memberTeam = await axios.post(
+    `${BASE}/teams`,
+    { name: `Smoke Member Team ${Date.now()}`, department: deptId },
+    adminAuth
+  );
+  const member = await createUser(adminAuth, "member", { team: memberTeam.data.data.team._id });
+  await mongoose.connect(process.env.MONGODB_URI);
+  await User.findByIdAndUpdate(manager.userId, { managedDepartment: deptId });
+  await mongoose.disconnect();
 
   const project = await axios.post(
     `${BASE}/projects`,
@@ -170,11 +190,15 @@ const run = async () => {
   );
 
   // --- requirement 4: cross-team visibility, with team detail + filter ---
+  // Same department as manager's managedDepartment (set above) — the manager's
+  // default roster is department-scoped (Task 3), so this must be a sibling
+  // team within that department, not a separate department, to prove
+  // cross-team-within-department visibility rather than accidentally testing
+  // cross-department access that a scoped manager is no longer allowed.
 
-  const dept = await axios.post(`${BASE}/departments`, { name: `Smoke Dept ${Date.now()}` }, adminAuth);
   const team = await axios.post(
     `${BASE}/teams`,
-    { name: `Smoke Team ${Date.now()}`, department: dept.data.data.department._id },
+    { name: `Smoke Team ${Date.now()}`, department: deptId },
     adminAuth
   );
   const teamId = team.data.data.team._id;
@@ -192,11 +216,11 @@ const run = async () => {
   const csv3 = await axios.get(`${BASE}/leaderboard?week=${todayStr()}&format=csv`, manager.auth);
   const allRows = parseLeaderboardCsv(csv3.data);
   const teamRow = allRows.find((r) => r.name === teamMember.name);
-  assert.ok(teamRow, "the teammate shows up in the org-wide export");
+  assert.ok(teamRow, "the teammate shows up in the manager's department-scoped export");
   assert.equal(teamRow.team, teamName, "the row is labeled with the member's team");
   assert.ok(
     allRows.some((r) => r.name === member.name),
-    "a member with no team is visible in the same org-wide list as the teammate (team A sees team B)"
+    "a member on a sibling team in the same department is visible alongside the teammate (department is the scope boundary, not team)"
   );
 
   const csv4 = await axios.get(`${BASE}/leaderboard?week=${todayStr()}&format=csv&team=${teamId}`, manager.auth);
