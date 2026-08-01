@@ -2,6 +2,7 @@ import Project from "../models/Project.js";
 import Task from "../models/Task.js";
 import User from "../models/User.js";
 import { visibilityFilter } from "./projectController.js";
+import { resolveDepartmentScope } from "../utils/departmentScope.js";
 
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -20,10 +21,15 @@ export const globalSearch = async (req, res) => {
     const taskFilter = { title: rx };
     if (scopedProjectIds) taskFilter.project = { $in: scopedProjectIds };
 
+    const scope = await resolveDepartmentScope(req.user);
+    const userFilter = scope
+      ? { name: rx, isActive: true, $or: [{ team: { $in: scope.teamIds } }, { _id: req.user._id }] }
+      : { name: rx, isActive: true };
+
     const [projects, tasks, users] = await Promise.all([
       Project.find({ ...projectScope, name: rx }).select("name status").limit(5),
       Task.find(taskFilter).select("title status project").limit(7),
-      User.find({ name: rx, isActive: true }).select("name role designation").limit(5),
+      User.find(userFilter).select("name role designation").limit(5),
     ]);
 
     return res.json({ success: true, message: "Search", data: { projects, tasks, users } });

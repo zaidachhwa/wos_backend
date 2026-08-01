@@ -307,6 +307,75 @@ const run = async () => {
   assert.equal(fix4PatchAdmin.status, 200, "admin (unrestricted) CAN PATCH a project to add a cross-department member");
   await axios.delete(`${BASE}/projects/${fix4ProjectId}`, adminAuth);
 
+  // --- Fix (round 2, regression): updateProject must not re-validate the
+  // RESULTING manager/members when the request doesn't touch those fields.
+  // A legacy project that already spans departments (the exact population
+  // the migration flags into DepartmentViolation) must still allow a
+  // status-only edit by its own manager. Build that legacy shape directly
+  // via admin (unrestricted), bypassing manager1's own createProject scoping.
+
+  const legacyProject = await axios.post(
+    `${BASE}/projects`,
+    {
+      name: `Smoke Legacy Cross-Dept Project ${Date.now()}`,
+      manager: manager1.userId,
+      members: [memberA1.userId, memberB.userId],
+    },
+    adminAuth
+  );
+  const legacyProjectId = legacyProject.data.data.project._id;
+
+  const legacyStatusOnlyPatch = await axios.patch(
+    `${BASE}/projects/${legacyProjectId}`,
+    { status: "active" },
+    { ...manager1.auth, validateStatus: () => true }
+  );
+  assert.equal(
+    legacyStatusOnlyPatch.status,
+    200,
+    "a manager can status-only PATCH a legacy project that already has an out-of-scope member, as long as the PATCH doesn't touch manager/members"
+  );
+
+  const legacyAddOutOfScope = await axios.patch(
+    `${BASE}/projects/${legacyProjectId}`,
+    { members: [memberA1.userId, memberB.userId] },
+    { ...manager1.auth, validateStatus: () => true }
+  );
+  assert.equal(
+    legacyAddOutOfScope.status,
+    400,
+    "a manager PATCHing with members explicitly in the request body still 400s when it contains an out-of-scope id (the check still fires when members is actually present)"
+  );
+
+  await axios.delete(`${BASE}/projects/${legacyProjectId}`, adminAuth);
+
+  // --- Fix (round 2, leak): globalSearch's user-search branch must be
+  // department-scoped the same way /users/directory already is -----------
+
+  const searchAsMemberA1 = await axios.get(
+    `${BASE}/search?q=${encodeURIComponent(memberB.name)}`,
+    memberA1.auth
+  );
+  assert.ok(
+    !searchAsMemberA1.data.data.users.some((u) => u.name === memberB.name),
+    "a Department-A member's search does not return a Department-B user"
+  );
+
+  const searchAsMemberA1Own = await axios.get(
+    `${BASE}/search?q=${encodeURIComponent(memberA2.name)}`,
+    memberA1.auth
+  );
+  assert.ok(
+    searchAsMemberA1Own.data.data.users.some((u) => u.name === memberA2.name),
+    "a Department-A member's search still returns a same-department user"
+  );
+
+  const searchAsAdmin = await axios.get(`${BASE}/search?q=${encodeURIComponent(memberB.name)}`, adminAuth);
+  assert.ok(
+    searchAsAdmin.data.data.users.some((u) => u.name === memberB.name),
+    "admin's search remains unrestricted"
+  );
+
   // --- Fix 7: updateComment's moderator privilege is project-scoped, not
   // unconditional org-wide -------------------------------------------------
 

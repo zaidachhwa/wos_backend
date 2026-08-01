@@ -196,9 +196,11 @@ export const updateProject = async (req, res) => {
     if (!(await canManage(req.user, project))) {
       return res.status(403).json({ success: false, message: "Forbidden" });
     }
-    const resultingManager = "manager" in req.body ? req.body.manager : project.manager;
-    const resultingMembers = "members" in req.body ? req.body.members : project.members;
-    const scopeError = await assertInScope(req.user, resultingManager, resultingMembers);
+    const scopeError = await assertInScope(
+      req.user,
+      "manager" in req.body ? req.body.manager : undefined,
+      "members" in req.body ? req.body.members : undefined
+    );
     if (scopeError) {
       return res.status(400).json({ success: false, message: scopeError });
     }
