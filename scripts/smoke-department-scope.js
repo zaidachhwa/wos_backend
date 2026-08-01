@@ -1,5 +1,8 @@
 import assert from "node:assert";
 import axios from "axios";
+import mongoose from "mongoose";
+
+import User from "../src/models/User.js";
 
 const BASE = process.env.API_URL || "http://localhost:5000/api";
 const EMAIL = process.env.SEED_ADMIN_EMAIL;
@@ -57,6 +60,37 @@ const run = async () => {
   assert.ok(
     dirAdmin.data.data.users.map((u) => u.name).includes(memberB.name),
     "admin's directory is unrestricted, sees every department"
+  );
+
+  // --- fix: the directory filter always folds in the caller's own _id, so
+  // every non-admin role sees themselves even when scope.teamIds wouldn't
+  // otherwise match their own team --------------------------------------
+
+  assert.ok(namesA1.includes(memberA1.name), "a member-with-a-team sees themselves in their own directory");
+
+  // A manager's own `team` has no designed relationship to the department
+  // they manage (managedDepartment drives scope.teamIds, not the manager's
+  // own team) — put the manager's own team in a department they do NOT
+  // manage, so scope.teamIds excludes it. Before the fix, this meant a
+  // manager could never see their own directory entry.
+  const deptC = await axios.post(`${BASE}/departments`, { name: `Smoke Dept C ${Date.now()}` }, adminAuth);
+  const deptCId = deptC.data.data.department._id;
+  const teamC = await axios.post(`${BASE}/teams`, { name: `Smoke Team C ${Date.now()}`, department: deptCId }, adminAuth);
+  const teamCId = teamC.data.data.team._id;
+
+  const manager = await createUser(adminAuth, "manager", { team: teamCId });
+  // createUser/updateUser both force managedDepartment to null for any
+  // non-subadmin role (see userController.js) — there's no API path today to
+  // assign a manager's managedDepartment, so set it directly for this
+  // fixture (same pattern as scripts/seed.js).
+  await mongoose.connect(process.env.MONGODB_URI);
+  await User.findByIdAndUpdate(manager.userId, { managedDepartment: deptAId });
+  await mongoose.disconnect();
+
+  const dirManager = await axios.get(`${BASE}/users/directory`, manager.auth);
+  assert.ok(
+    dirManager.data.data.users.map((u) => u.name).includes(manager.name),
+    "a manager whose own team sits outside their managed department still sees themselves in their own directory"
   );
 
   console.log("smoke-department-scope: all checks passed");

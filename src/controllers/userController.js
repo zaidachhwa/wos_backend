@@ -97,7 +97,7 @@ export const listUsers = async (req, res) => {
 export const listDirectory = async (req, res) => {
   try {
     const scope = await resolveDepartmentScope(req.user);
-    const filter = scope ? { team: { $in: scope.teamIds } } : {};
+    const filter = scope ? { $or: [{ team: { $in: scope.teamIds } }, { _id: req.user._id }] } : {};
     const users = await User.find(filter)
       .select("name role designation department team")
       .populate("department", "name")
