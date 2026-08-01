@@ -57,7 +57,7 @@ export const createUser = async (req, res) => {
       department: req.user.role === "subadmin" ? req.user.managedDepartment : department || null,
       team: team || null,
       reportingManager: reportingManager || null,
-      managedDepartment: role === "subadmin" ? managedDepartment : null,
+      managedDepartment: ["manager", "subadmin"].includes(role) ? managedDepartment : null,
     });
     const safeUser = await User.findById(user._id);
     return res.status(201).json({ success: true, message: "User created", data: { user: safeUser } });
@@ -154,18 +154,18 @@ export const updateUser = async (req, res) => {
       }
     } else {
       const resultingRole = "role" in updates ? updates.role : target.role;
-      if (resultingRole === "subadmin") {
+      if (["manager", "subadmin"].includes(resultingRole)) {
         const resultingManagedDepartment =
           "managedDepartment" in updates ? updates.managedDepartment : target.managedDepartment;
         if (!resultingManagedDepartment) {
           return res.status(400).json({
             success: false,
-            message: "managedDepartment is required for the subadmin role",
+            message: "managedDepartment is required for the manager/subadmin roles",
           });
         }
       } else {
-        // Role isn't (staying) subadmin — clear any stale managedDepartment so a
-        // later re-promotion can't silently inherit a previous department.
+        // Role isn't (staying) manager/subadmin — clear any stale managedDepartment
+        // so a later re-promotion can't silently inherit a previous department.
         updates.managedDepartment = null;
       }
     }

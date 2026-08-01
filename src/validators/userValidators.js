@@ -18,10 +18,10 @@ export const validateCreateUser = (req, res, next) => {
   if (!ROLES.includes(role)) {
     return res.status(400).json({ success: false, message: "Invalid role" });
   }
-  if (role === "subadmin" && !managedDepartment) {
+  if (["manager", "subadmin"].includes(role) && !managedDepartment) {
     return res
       .status(400)
-      .json({ success: false, message: "managedDepartment is required for the subadmin role" });
+      .json({ success: false, message: "managedDepartment is required for the manager/subadmin roles" });
   }
   next();
 };

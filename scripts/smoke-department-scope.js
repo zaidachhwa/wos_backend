@@ -79,14 +79,9 @@ const run = async () => {
   const teamC = await axios.post(`${BASE}/teams`, { name: `Smoke Team C ${Date.now()}`, department: deptCId }, adminAuth);
   const teamCId = teamC.data.data.team._id;
 
-  const manager = await createUser(adminAuth, "manager", { team: teamCId });
-  // createUser/updateUser both force managedDepartment to null for any
-  // non-subadmin role (see userController.js) — there's no API path today to
-  // assign a manager's managedDepartment, so set it directly for this
-  // fixture (same pattern as scripts/seed.js).
-  await mongoose.connect(process.env.MONGODB_URI);
-  await User.findByIdAndUpdate(manager.userId, { managedDepartment: deptAId });
-  await mongoose.disconnect();
+  // Task 5 closed the gap that used to force a direct Mongoose write here —
+  // managedDepartment can now be set through the real createUser API.
+  const manager = await createUser(adminAuth, "manager", { team: teamCId, managedDepartment: deptAId });
 
   const dirManager = await axios.get(`${BASE}/users/directory`, manager.auth);
   assert.ok(
@@ -99,13 +94,8 @@ const run = async () => {
   const csvA1 = await axios.get(`${BASE}/leaderboard?format=csv`, { ...memberA1.auth, validateStatus: () => true });
   assert.equal(csvA1.status, 403, "a plain member cannot export the csv report (unchanged, pre-existing rule)");
 
-  // createUser forces managedDepartment to null for any non-subadmin role
-  // (see userController.js) — same quirk worked around above for the
-  // directory-fix fixture; set it directly here too.
+  // Task 5 closed the gap — managedDepartment set directly via createUser.
   const manager1 = await createUser(adminAuth, "manager", { managedDepartment: deptAId });
-  await mongoose.connect(process.env.MONGODB_URI);
-  await User.findByIdAndUpdate(manager1.userId, { managedDepartment: deptAId });
-  await mongoose.disconnect();
 
   const csvManagerDefault = await axios.get(`${BASE}/leaderboard?format=csv`, manager1.auth);
   assert.equal(csvManagerDefault.status, 200);
@@ -190,6 +180,41 @@ const run = async () => {
     deptsAsAdmin.data.data.departments.map((d) => d.name).includes(deptB.data.data.department.name),
     "admin's departments list is unrestricted"
   );
+
+  // --- Task 5: manager requires managedDepartment, and is scoped to it ---
+
+  const managerNoDept = await axios.post(
+    `${BASE}/users`,
+    { name: "Bad Manager", email: `badmanager+${Date.now()}@wos.local`, password: "smokepass123", role: "manager" },
+    { ...adminAuth, validateStatus: () => true }
+  );
+  assert.equal(managerNoDept.status, 400, "creating a manager with no managedDepartment is rejected");
+
+  const projectA = await axios.post(
+    `${BASE}/projects`,
+    { name: `Smoke Project A ${Date.now()}`, manager: manager1.userId, members: [memberA1.userId] },
+    adminAuth
+  );
+  const projectAId = projectA.data.data.project._id;
+
+  const manager2 = await createUser(adminAuth, "manager", { managedDepartment: deptBId });
+  const projectB = await axios.post(
+    `${BASE}/projects`,
+    { name: `Smoke Project B ${Date.now()}`, manager: manager2.userId, members: [memberB.userId] },
+    adminAuth
+  );
+  const projectBId = projectB.data.data.project._id;
+
+  const manager1SeesA = await axios.get(`${BASE}/projects/${projectAId}`, { ...manager1.auth, validateStatus: () => true });
+  assert.equal(manager1SeesA.status, 200, "Department-A manager can see a Department-A project they manage");
+
+  const manager1SeesB = await axios.get(`${BASE}/projects/${projectBId}`, { ...manager1.auth, validateStatus: () => true });
+  assert.equal(manager1SeesB.status, 403, "Department-A manager CANNOT see a Department-B project (was unconditional before this task)");
+
+  const listAsManager1 = await axios.get(`${BASE}/projects?limit=100`, manager1.auth);
+  const namesAsManager1 = listAsManager1.data.data.projects.map((p) => p.name);
+  assert.ok(namesAsManager1.includes(projectA.data.data.project.name), "manager1's project list includes their own Department-A project");
+  assert.ok(!namesAsManager1.includes(projectB.data.data.project.name), "manager1's project list excludes the Department-B project");
 
   console.log("smoke-department-scope: all checks passed");
 };

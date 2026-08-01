@@ -5,7 +5,7 @@ import User from "../models/User.js";
 import { recordActivity, notify } from "../utils/record.js";
 import { computeProjectProgress, modulesWithProgress } from "../utils/progress.js";
 import { paginationParams, paginationMeta } from "../utils/pagination.js";
-import { getManagedUserIds, getManagedTeamIds } from "../utils/departmentScope.js";
+import { getManagedUserIds, getManagedTeamIds, resolveDepartmentScope } from "../utils/departmentScope.js";
 
 // project.manager/members may be a raw ObjectId or a populated User doc
 // (getProject populates them for the response) — always compare by _id.
@@ -13,9 +13,9 @@ import { getManagedUserIds, getManagedTeamIds } from "../utils/departmentScope.j
 export const idOf = (v) => String(v?._id || v);
 
 const canManage = async (user, project) => {
-  if (["admin", "manager"].includes(user.role)) return true;
+  if (user.role === "admin") return true;
   if (idOf(project.manager) === String(user._id)) return true;
-  if (user.role === "subadmin") {
+  if (["manager", "subadmin"].includes(user.role)) {
     const managedIds = (await getManagedUserIds(user)).map(String);
     return managedIds.includes(idOf(project.manager));
   }
@@ -25,16 +25,16 @@ const canManage = async (user, project) => {
 // Exported for moduleController/taskController: same visibility rule applies
 // to viewing a project's modules/tasks.
 export const canViewProject = async (user, project) => {
-  if (["admin", "manager"].includes(user.role)) return true;
+  if (user.role === "admin") return true;
   if (idOf(project.manager) === String(user._id)) return true;
   if ((project.members || []).some((m) => idOf(m) === String(user._id))) return true;
-  if (user.role === "subadmin") {
+  if (["manager", "subadmin"].includes(user.role)) {
     const managedIds = (await getManagedUserIds(user)).map(String);
     if (managedIds.includes(idOf(project.manager))) return true;
     if ((project.members || []).some((m) => managedIds.includes(idOf(m)))) return true;
   }
   const scopeIds =
-    user.role === "subadmin" ? [...(await getManagedUserIds(user)), user._id] : [user._id];
+    ["manager", "subadmin"].includes(user.role) ? [...(await getManagedUserIds(user)), user._id] : [user._id];
   const assignedToAModule = await ProjectModule.exists({ project: project._id, assignees: { $in: scopeIds } });
   if (assignedToAModule) return true;
   const assignedToATask = await Task.exists({ project: project._id, assignees: { $in: scopeIds } });
@@ -44,9 +44,9 @@ export const canViewProject = async (user, project) => {
 // Exported for taskController: build a Project filter matching what a user
 // may view, so task list filtering doesn't duplicate the visibility rule.
 export const visibilityFilter = async (user) => {
-  if (["admin", "manager"].includes(user.role)) return {};
+  if (user.role === "admin") return {};
   const scopeIds =
-    user.role === "subadmin" ? [...(await getManagedUserIds(user)), user._id] : [user._id];
+    ["manager", "subadmin"].includes(user.role) ? [...(await getManagedUserIds(user)), user._id] : [user._id];
   const [assignedModuleProjectIds, assignedTaskProjectIds] = await Promise.all([
     ProjectModule.find({ assignees: { $in: scopeIds } }).distinct("project"),
     Task.find({ assignees: { $in: scopeIds } }).distinct("project"),
