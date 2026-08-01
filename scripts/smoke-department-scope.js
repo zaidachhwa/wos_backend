@@ -250,6 +250,80 @@ const run = async () => {
   assert.equal(violationsAsAdmin.status, 200);
   assert.ok(Array.isArray(violationsAsAdmin.data.data.violations), "violations endpoint returns an array");
 
+  // --- Fix 1: manager's default GET /tasks (no ?project=) is project-scoped,
+  // not an unconditional org-wide fast path (was the ["admin","manager"]
+  // short-circuit that skipped visibilityFilter entirely) -----------------
+
+  const deptBTask = await axios.post(
+    `${BASE}/tasks`,
+    { project: projectBId, title: `Smoke Dept B Task ${Date.now()}`, assignees: [memberB.userId] },
+    adminAuth
+  );
+  const deptBTaskId = deptBTask.data.data.task._id;
+
+  const manager1Tasks = await axios.get(`${BASE}/tasks?limit=500`, manager1.auth);
+  assert.ok(
+    !manager1Tasks.data.data.tasks.some((t) => t._id === deptBTaskId),
+    "Department-A manager's unscoped GET /tasks does NOT include a Department-B task (was unconditional org-wide before this fix)"
+  );
+
+  // --- Fix 2: admin's ?team= filter on the leaderboard is respected, not
+  // silently dropped -------------------------------------------------------
+
+  const adminTeamACsv = await axios.get(`${BASE}/leaderboard?format=csv&team=${teamAId}`, adminAuth);
+  assert.ok(adminTeamACsv.data.includes(memberA1.name), "admin's ?team= roster includes a member of that team");
+  assert.ok(
+    !adminTeamACsv.data.includes(memberA2.name),
+    "admin's ?team= roster excludes a same-department member of a DIFFERENT team (proves team-, not department-, narrowing)"
+  );
+  assert.ok(!adminTeamACsv.data.includes(memberB.name), "admin's ?team= roster excludes a different department's member");
+
+  // --- Fix 4: updateProject enforces the same department boundary as
+  // createProject, so a manager can't bypass Task 6's scoping with a PATCH -
+
+  const fix4Project = await axios.post(
+    `${BASE}/projects`,
+    { name: `Smoke Fix4 Project ${Date.now()}`, manager: manager1.userId, members: [memberA1.userId] },
+    manager1.auth
+  );
+  const fix4ProjectId = fix4Project.data.data.project._id;
+
+  const fix4PatchCrossDept = await axios.patch(
+    `${BASE}/projects/${fix4ProjectId}`,
+    { members: [memberA1.userId, memberB.userId] },
+    { ...manager1.auth, validateStatus: () => true }
+  );
+  assert.equal(fix4PatchCrossDept.status, 400, "a Department-A manager cannot PATCH a project to add a Department-B member");
+  assert.ok(
+    fix4PatchCrossDept.data.message.includes("outside your department"),
+    "the PATCH rejection uses the same 'outside your department' message as createProject"
+  );
+
+  const fix4PatchAdmin = await axios.patch(
+    `${BASE}/projects/${fix4ProjectId}`,
+    { members: [memberA1.userId, memberB.userId] },
+    adminAuth
+  );
+  assert.equal(fix4PatchAdmin.status, 200, "admin (unrestricted) CAN PATCH a project to add a cross-department member");
+  await axios.delete(`${BASE}/projects/${fix4ProjectId}`, adminAuth);
+
+  // --- Fix 7: updateComment's moderator privilege is project-scoped, not
+  // unconditional org-wide -------------------------------------------------
+
+  const addCommentRes = await axios.post(`${BASE}/tasks/${deptBTaskId}/comments`, { text: "Dept B comment" }, memberB.auth);
+  const deptBCommentId = addCommentRes.data.data.task.comments.at(-1)._id;
+
+  const manager1EditsDeptBComment = await axios.patch(
+    `${BASE}/tasks/${deptBTaskId}/comments/${deptBCommentId}`,
+    { text: "hijacked" },
+    { ...manager1.auth, validateStatus: () => true }
+  );
+  assert.equal(
+    manager1EditsDeptBComment.status,
+    403,
+    "a Department-A manager cannot use moderator privilege to edit a comment on a Department-B task"
+  );
+
   console.log("smoke-department-scope: all checks passed");
 };
 

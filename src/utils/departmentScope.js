@@ -49,6 +49,9 @@ export const resolveDepartmentScope = async (user) => {
     return { departmentId: null, teamIds: [], userIds: [user._id] };
   }
   const team = await Team.findById(user.team, "department");
+  if (!team) {
+    return { departmentId: null, teamIds: [], userIds: [user._id] };
+  }
   const teamIds = await getManagedTeamIds(team.department);
   const users = await User.find({ team: { $in: teamIds } }, "_id");
   return { departmentId: team.department, teamIds, userIds: users.map((u) => u._id) };

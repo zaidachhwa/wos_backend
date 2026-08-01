@@ -69,6 +69,8 @@ export const getLeaderboard = async (req, res) => {
       } else {
         rosterFilter.$or = [{ team: { $in: scope.teamIds } }, { _id: req.user._id }];
       }
+    } else if (req.query.team) {
+      rosterFilter.team = req.query.team;
     }
 
     const [completions, roster] = await Promise.all([

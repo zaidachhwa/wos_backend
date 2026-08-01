@@ -61,20 +61,24 @@ export const visibilityFilter = async (user) => {
   };
 };
 
+// Shared by createProject/updateProject: a department-scoped role (manager,
+// subadmin) may only assign a manager/members drawn from their own
+// department. Returns null (no error) for admin, who is unrestricted.
+const assertInScope = async (user, manager, members) => {
+  const scope = await resolveDepartmentScope(user);
+  if (!scope) return null;
+  const allowedIds = new Set([...scope.userIds.map(String), String(user._id)]);
+  const candidateIds = [manager, ...(members || [])].filter(Boolean).map(String);
+  const outOfScope = candidateIds.find((id) => !allowedIds.has(id));
+  return outOfScope ? `User ${outOfScope} is outside your department` : null;
+};
+
 export const createProject = async (req, res) => {
   try {
     const { name, description, manager, members, priority, startDate, deadline, status, type } = req.body;
-    const scope = await resolveDepartmentScope(req.user);
-    if (scope) {
-      const allowedIds = new Set([...scope.userIds.map(String), String(req.user._id)]);
-      const candidateIds = [manager, ...(members || [])].filter(Boolean).map(String);
-      const outOfScope = candidateIds.find((id) => !allowedIds.has(id));
-      if (outOfScope) {
-        return res.status(400).json({
-          success: false,
-          message: `User ${outOfScope} is outside your department`,
-        });
-      }
+    const scopeError = await assertInScope(req.user, manager, members);
+    if (scopeError) {
+      return res.status(400).json({ success: false, message: scopeError });
     }
     const project = await Project.create({
       name,
@@ -191,6 +195,12 @@ export const updateProject = async (req, res) => {
     }
     if (!(await canManage(req.user, project))) {
       return res.status(403).json({ success: false, message: "Forbidden" });
+    }
+    const resultingManager = "manager" in req.body ? req.body.manager : project.manager;
+    const resultingMembers = "members" in req.body ? req.body.members : project.members;
+    const scopeError = await assertInScope(req.user, resultingManager, resultingMembers);
+    if (scopeError) {
+      return res.status(400).json({ success: false, message: scopeError });
     }
     const allowed = [
       "name",

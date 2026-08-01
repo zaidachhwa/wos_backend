@@ -305,7 +305,7 @@ export const listTasks = async (req, res) => {
         return res.status(403).json({ success: false, message: "Forbidden" });
       }
       filter.project = project;
-    } else if (!["admin", "manager"].includes(req.user.role)) {
+    } else if (req.user.role !== "admin") {
       const viewableIds = await Project.find(await visibilityFilter(req.user)).distinct("_id");
       filter.project = { $in: viewableIds };
     }
@@ -565,9 +565,19 @@ export const updateComment = async (req, res) => {
     if (!comment) {
       return res.status(404).json({ success: false, message: "Comment not found" });
     }
+    const isOwn = idOf(comment.user) === String(req.user._id);
     const canManage = COMMENT_MODERATOR_ROLES.includes(req.user.role);
-    if (idOf(comment.user) !== String(req.user._id) && !canManage) {
+    if (!isOwn && !canManage) {
       return res.status(403).json({ success: false, message: "Forbidden" });
+    }
+    if (!isOwn && canManage) {
+      // Own-comment edits are always allowed; the moderator privilege is
+      // scoped like everywhere else (canViewProject), per the note above
+      // COMMENT_MODERATOR_ROLES about why subadmin was excluded.
+      const project = await Project.findById(task.project);
+      if (!project || !(await canViewProject(req.user, project))) {
+        return res.status(403).json({ success: false, message: "Forbidden" });
+      }
     }
     if (!req.body.text || !String(req.body.text).trim()) {
       return res.status(400).json({ success: false, message: "text is required" });

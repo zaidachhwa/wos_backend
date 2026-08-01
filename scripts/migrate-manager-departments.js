@@ -62,7 +62,11 @@ const run = async () => {
       if (dept) departments.add(dept);
     }
     if (departments.size > 1) {
-      await DepartmentViolation.create({ project: project._id, departments: [...departments] });
+      await DepartmentViolation.findOneAndUpdate(
+        { project: project._id },
+        { departments: [...departments], flaggedAt: new Date() },
+        { upsert: true }
+      );
       flagged += 1;
     }
   }
