@@ -37,9 +37,16 @@ const run = async () => {
   // manager role — a dedicated department fixture for these two managers.
   const dept = await axios.post(`${BASE}/departments`, { name: `Smoke Approval Dept ${Date.now()}` }, adminAuth);
   const deptId = dept.data.data.department._id;
+  const managerTeam = await axios.post(
+    `${BASE}/teams`,
+    { name: `Smoke Approval Manager Team ${Date.now()}`, department: deptId },
+    adminAuth
+  );
 
   const manager = await createUser(adminAuth, "manager", null, { managedDepartment: deptId });
-  const member = await createUser(adminAuth, "member", manager.userId);
+  // member must sit on a team inside manager's department — createProject validates
+  // manager/members are within the acting manager's department scope (Task 6).
+  const member = await createUser(adminAuth, "member", manager.userId, { team: managerTeam.data.data.team._id });
   const outsiderManager = await createUser(adminAuth, "manager", null, { managedDepartment: deptId });
 
   const project = await axios.post(

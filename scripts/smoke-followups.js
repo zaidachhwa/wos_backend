@@ -38,10 +38,21 @@ const run = async () => {
     adminAuth
   );
   const managerDeptId = managerDept.data.data.department._id;
+  const managerTeam = await axios.post(
+    `${BASE}/teams`,
+    { name: `Followups Smoke Manager Team ${Date.now()}`, department: managerDeptId },
+    adminAuth
+  );
 
   const manager = await createUser(adminAuth, "manager", { managedDepartment: managerDeptId });
   const member = await createUser(adminAuth, "member", { reportingManager: manager.userId });
-  const secondReport = await createUser(adminAuth, "member", { reportingManager: manager.userId });
+  // secondReport must sit on a team inside manager's department — used as a
+  // createProject member below, and createProject validates manager/members
+  // are within the acting manager's department scope (Task 6).
+  const secondReport = await createUser(adminAuth, "member", {
+    reportingManager: manager.userId,
+    team: managerTeam.data.data.team._id,
+  });
 
   const today = new Date().toISOString().slice(0, 10);
 
