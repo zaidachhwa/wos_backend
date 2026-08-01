@@ -145,6 +145,45 @@ const run = async () => {
   const adminApproves = await axios.patch(`${BASE}/tasks/${task3}/approve`, {}, adminAuth);
   assert.equal(adminApproves.status, 200, "admin can approve regardless of reportingManager");
 
+  // --- subadmin can decide for a creator within their managed department ---
+
+  const proposed4 = await axios.post(
+    `${BASE}/tasks`,
+    { project: projectId, title: "Proposed, subadmin decides" },
+    member.auth
+  );
+  const task4 = proposed4.data.data.task._id;
+
+  const subadminInDept = await createUser(adminAuth, "subadmin", null, { managedDepartment: deptId });
+  const subadminApproves = await axios.patch(`${BASE}/tasks/${task4}/approve`, {}, subadminInDept.auth);
+  assert.equal(
+    subadminApproves.status,
+    200,
+    "a subadmin whose managed department includes the creator can approve, even without being reportingManager"
+  );
+
+  const proposed5 = await axios.post(
+    `${BASE}/tasks`,
+    { project: projectId, title: "Proposed, outsider subadmin forbidden" },
+    member.auth
+  );
+  const task5 = proposed5.data.data.task._id;
+
+  const otherDept = await axios.post(`${BASE}/departments`, { name: `Smoke Approval Other Dept ${Date.now()}` }, adminAuth);
+  const subadminOutsideDept = await createUser(adminAuth, "subadmin", null, {
+    managedDepartment: otherDept.data.data.department._id,
+  });
+  const outsiderSubadminReject = await axios.patch(
+    `${BASE}/tasks/${task5}/reject`,
+    { approvalComment: "not my department" },
+    { ...subadminOutsideDept.auth, validateStatus: () => true }
+  );
+  assert.equal(
+    outsiderSubadminReject.status,
+    403,
+    "a subadmin managing a different department cannot decide"
+  );
+
   console.log("smoke-approval: all checks passed");
 };
 

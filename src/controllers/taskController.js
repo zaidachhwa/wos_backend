@@ -11,6 +11,7 @@ import { validateTimeSlot } from "../utils/taskDates.js";
 import { maxBonusFor } from "../utils/points.js";
 import { getPenalties } from "../utils/pointsConfig.js";
 import { computeStatusDurations } from "../utils/statusDurations.js";
+import { getManagedUserIds } from "../utils/departmentScope.js";
 
 const SUBLEAD_PLUS = ["admin", "manager", "subadmin", "sublead"];
 // Deliberately excludes subadmin: unlike task-editing (SUBLEAD_PLUS), comment
@@ -182,13 +183,20 @@ export const createTask = async (req, res) => {
   }
 };
 
-// Mirrors followUpController.reviewFollowUp's state-machine: only the
-// creator's reportingManager or an admin may decide, and only while pending.
+// Mirrors followUpController.reviewFollowUp's state-machine: the creator's
+// reportingManager, an admin, or a subadmin whose managed department
+// includes the creator, may decide — and only while pending.
 const canDecideApproval = async (user, task) => {
   if (user.role === "admin") return true;
   if (!task.createdBy) return false;
   const creator = await User.findById(task.createdBy);
-  return !!creator && String(creator.reportingManager) === String(user._id);
+  if (!creator) return false;
+  if (String(creator.reportingManager) === String(user._id)) return true;
+  if (user.role === "subadmin") {
+    const managedIds = (await getManagedUserIds(user)).map(String);
+    return managedIds.includes(String(creator._id));
+  }
+  return false;
 };
 
 export const approveTask = async (req, res) => {
