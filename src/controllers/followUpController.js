@@ -88,17 +88,17 @@ export const listFollowUps = async (req, res) => {
       } else {
         reportFilter = { reportingManager: req.user._id, isActive: true };
       }
-      const reports = await User.find(reportFilter).select("name role");
+      const reports = await User.find(reportFilter).select("name role department");
       const existing = await FollowUp.find({
         user: { $in: reports.map((r) => r._id) },
         date,
         type,
-      }).populate("user", "name role");
+      }).populate("user", "name role department");
       const byUser = new Map(existing.map((f) => [String(f.user._id), f]));
       const followUps = reports.map(
         (r) =>
           byUser.get(String(r._id)) || {
-            user: { _id: r._id, name: r.name, role: r.role },
+            user: { _id: r._id, name: r.name, role: r.role, department: r.department },
             date,
             type,
             status: "missing",
