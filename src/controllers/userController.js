@@ -109,6 +109,30 @@ export const listDirectory = async (req, res) => {
   }
 };
 
+// Single-user profile fetch, open to any authenticated role — visibility is
+// the same department scope listDirectory already enforces, so a user can
+// open a profile only for someone they could already see in the team list.
+export const getUserById = async (req, res) => {
+  try {
+    const scope = await resolveDepartmentScope(req.user);
+    const filter = scope
+      ? { _id: req.params.id, $or: [{ team: { $in: scope.teamIds } }, { _id: req.user._id }] }
+      : { _id: req.params.id };
+    const user = await User.findOne(filter)
+      .select("name email role designation department team managedDepartment reportingManager isActive createdAt")
+      .populate("department", "name")
+      .populate("team", "name")
+      .populate("reportingManager", "name role");
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+    return res.json({ success: true, message: "User fetched", data: { user } });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: "Something went wrong" });
+  }
+};
+
 export const updateUser = async (req, res) => {
   try {
     const allowed =
