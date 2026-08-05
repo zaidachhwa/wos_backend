@@ -388,6 +388,53 @@ const run = async () => {
     "subadmin cannot review a follow-up outside their managed department"
   );
 
+  // --- fix: history pagination is date-wise, not document-wise — a date's
+  // morning + evening pair must never be split across a page boundary -----
+
+  const historyUser = await createUser(adminAuth, "member");
+  const pad = (n) => String(n).padStart(2, "0");
+  const daysAgo = (n) => {
+    const d = new Date();
+    d.setDate(d.getDate() - n);
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  };
+  const historyDates = [1, 2, 3, 4, 5].map(daysAgo);
+  for (const d of historyDates) {
+    await axios.post(
+      `${BASE}/followups`,
+      { date: d, type: "morning", data: { yesterdayCompleted: "x", todayPlan: "y" }, submit: true },
+      historyUser.auth
+    );
+    await axios.post(
+      `${BASE}/followups`,
+      { date: d, type: "evening", data: { completedWork: "x", remainingWork: "y" }, submit: true },
+      historyUser.auth
+    );
+  }
+
+  const historyPage1 = await axios.get(`${BASE}/followups?page=1&limit=2`, historyUser.auth);
+  assert.equal(
+    historyPage1.data.data.pagination.total,
+    5,
+    "pagination total counts distinct dates (5), not raw documents (10)"
+  );
+  assert.equal(historyPage1.data.data.pagination.totalPages, 3, "5 dates at 2-per-page is 3 pages");
+  const page1Dates = new Map();
+  for (const f of historyPage1.data.data.followUps) {
+    page1Dates.set(f.date, (page1Dates.get(f.date) || 0) + 1);
+  }
+  assert.equal(page1Dates.size, 2, "page 1 spans exactly 2 distinct dates");
+  for (const count of page1Dates.values()) {
+    assert.equal(count, 2, "each date on page 1 has both its morning and evening entries, not split");
+  }
+
+  const historyPage3 = await axios.get(`${BASE}/followups?page=3&limit=2`, historyUser.auth);
+  assert.equal(
+    historyPage3.data.data.followUps.length,
+    2,
+    "the last (partial) page still returns a complete morning+evening pair, not a lone split entry"
+  );
+
   console.log("smoke-followups: all checks passed");
 };
 

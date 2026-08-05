@@ -111,14 +111,27 @@ export const listFollowUps = async (req, res) => {
     if (date) filter.date = date;
     if (type) filter.type = type;
     const pageParams = paginationParams(req.query);
-    const total = await FollowUp.countDocuments(filter);
-    let query = FollowUp.find(filter).sort("-date");
-    if (pageParams) query = query.skip(pageParams.skip).limit(pageParams.limit);
-    const followUps = await query;
+
+    if (pageParams) {
+      // Paginate by distinct date, not by raw document — a date's morning +
+      // evening pair must never be split across a page boundary (the history
+      // list groups by date, so a split pair used to show up as an orphaned
+      // half-entry at the top of the next page).
+      const dates = (await FollowUp.distinct("date", filter)).sort((a, b) => (a < b ? 1 : -1));
+      const pageDates = dates.slice(pageParams.skip, pageParams.skip + pageParams.limit);
+      const followUps = await FollowUp.find({ ...filter, date: { $in: pageDates } }).sort("-date");
+      return res.json({
+        success: true,
+        message: "Follow-ups fetched",
+        data: { followUps, pagination: paginationMeta(dates.length, pageParams) },
+      });
+    }
+
+    const followUps = await FollowUp.find(filter).sort("-date");
     return res.json({
       success: true,
       message: "Follow-ups fetched",
-      data: { followUps, pagination: paginationMeta(total, pageParams) },
+      data: { followUps, pagination: paginationMeta(followUps.length, null) },
     });
   } catch (error) {
     console.error(error);
