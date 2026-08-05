@@ -28,18 +28,14 @@ const yesterday = () => new Date(Date.now() - 24 * 3600 * 1000);
 
 const run = async () => {
   const adminAuth = await authFor(EMAIL, PASSWORD);
-  // Task 3 (department segregation) generalized the leaderboard's roster
-  // scope to every non-admin role via resolveDepartmentScope, keyed on
-  // managedDepartment — so this manager needs one, department created first.
-  // Task 5 closed the gap that used to force a direct Mongoose write here;
-  // managedDepartment is now set through the real createUser API.
+  // Manager is scoped to a single managedTeam (not the whole department).
   const dept = await axios.post(`${BASE}/departments`, { name: `Smoke Accountability Dept ${Date.now()}` }, adminAuth);
-  const manager = await createUser(adminAuth, "manager", { managedDepartment: dept.data.data.department._id });
   const team = await axios.post(
     `${BASE}/teams`,
     { name: `Smoke Accountability Team ${Date.now()}`, department: dept.data.data.department._id },
     adminAuth
   );
+  const manager = await createUser(adminAuth, "manager", { managedTeam: team.data.data.team._id });
   const member = await createUser(adminAuth, "member", { reportingManager: manager.userId, team: team.data.data.team._id });
 
   const project = await axios.post(

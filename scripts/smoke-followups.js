@@ -44,11 +44,11 @@ const run = async () => {
     adminAuth
   );
 
-  const manager = await createUser(adminAuth, "manager", { managedDepartment: managerDeptId });
+  const manager = await createUser(adminAuth, "manager", { managedTeam: managerTeam.data.data.team._id });
   const member = await createUser(adminAuth, "member", { reportingManager: manager.userId });
-  // secondReport must sit on a team inside manager's department — used as a
-  // createProject member below, and createProject validates manager/members
-  // are within the acting manager's department scope (Task 6).
+  // secondReport must sit on manager's managed team — used as a createProject
+  // member below, and createProject validates manager/members are within the
+  // acting manager's team scope (Task 6).
   const secondReport = await createUser(adminAuth, "member", {
     reportingManager: manager.userId,
     team: managerTeam.data.data.team._id,
@@ -136,7 +136,7 @@ const run = async () => {
   );
   assert.equal(reviewMissing.status, 404, "reviewing a missing follow-up 404s");
 
-  const otherManager = await createUser(adminAuth, "manager", { managedDepartment: managerDeptId });
+  const otherManager = await createUser(adminAuth, "manager", { managedTeam: managerTeam.data.data.team._id });
   const reviewForbidden = await axios.patch(
     `${BASE}/followups/${followUpId}/review`,
     { managerComment: "Not my report" },

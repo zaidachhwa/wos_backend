@@ -44,7 +44,7 @@ const run = async () => {
     { name: `Smoke Projects Manager Team ${Date.now()}`, department: managerDeptId },
     adminAuth
   );
-  const manager = await createUser(adminAuth, "manager", { managedDepartment: managerDeptId });
+  const manager = await createUser(adminAuth, "manager", { managedTeam: managerTeam.data.data.team._id });
   // member must sit on a team inside managerDept — Task 6 now validates that
   // createProject's manager/members are within the acting manager's department scope.
   const member = await createUser(adminAuth, "member", { team: managerTeam.data.data.team._id });
@@ -425,7 +425,7 @@ const run = async () => {
       password: "smokepass123",
       role: "manager",
       team: teamId,
-      managedDepartment: deptId,
+      managedTeam: teamId,
     },
     adminAuth
   );

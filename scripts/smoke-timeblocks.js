@@ -32,13 +32,15 @@ const iso = (offsetHours) => new Date(Date.now() + offsetHours * 3600 * 1000).to
 const run = async () => {
   const adminAuth = await authFor(EMAIL, PASSWORD);
 
-  // Task 5 (department segregation) requires managedDepartment for the
-  // manager role.
+  // Manager requires a managedTeam. canActForUser scopes manager by
+  // reportingManager (not team), so any team works for this fixture.
   const dept = await axios.post(`${BASE}/departments`, { name: `Smoke Timeblocks Dept ${Date.now()}` }, adminAuth);
   const deptId = dept.data.data.department._id;
-  const manager = await createUser(adminAuth, "manager", { managedDepartment: deptId });
+  const team = await axios.post(`${BASE}/teams`, { name: `Smoke Timeblocks Team ${Date.now()}`, department: deptId }, adminAuth);
+  const teamId = team.data.data.team._id;
+  const manager = await createUser(adminAuth, "manager", { managedTeam: teamId });
   const member = await createUser(adminAuth, "member", { reportingManager: manager.userId });
-  const otherManager = await createUser(adminAuth, "manager", { managedDepartment: deptId });
+  const otherManager = await createUser(adminAuth, "manager", { managedTeam: teamId });
 
   // --- member creates own time block ----------------------------------------
 

@@ -16,6 +16,15 @@ const userSchema = new mongoose.Schema(
     // not stored, so a team added to the department later is covered
     // automatically without re-assigning the sub-admin.
     managedDepartment: { type: mongoose.Schema.Types.ObjectId, ref: "Department", default: null },
+    // Only set (and required, enforced in the controller) when role ===
+    // "manager" — the single team a manager manages (narrower than a
+    // sub-admin's whole department, per the hierarchy: sub-admin owns the
+    // department, manager owns one team within it).
+    managedTeam: { type: mongoose.Schema.Types.ObjectId, ref: "Team", default: null },
+    // Only meaningful when role === "sublead" — the set of teams a sub-lead
+    // manages (can be more than one, unlike manager's single team). Empty
+    // until an admin/sub-admin explicitly assigns teams.
+    managedTeams: [{ type: mongoose.Schema.Types.ObjectId, ref: "Team" }],
     team: { type: mongoose.Schema.Types.ObjectId, ref: "Team", default: null },
     reportingManager: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     isActive: { type: Boolean, default: true },

@@ -33,7 +33,12 @@ const run = async () => {
   // Task 5 (department segregation) requires managedDepartment for the
   // manager role.
   const dept = await axios.post(`${BASE}/departments`, { name: `Smoke Dashboard Dept ${Date.now()}` }, adminAuth);
-  const manager = await createUser(adminAuth, "manager", { managedDepartment: dept.data.data.department._id });
+  const managerTeam = await axios.post(
+    `${BASE}/teams`,
+    { name: `Smoke Dashboard Manager Team ${Date.now()}`, department: dept.data.data.department._id },
+    adminAuth
+  );
+  const manager = await createUser(adminAuth, "manager", { managedTeam: managerTeam.data.data.team._id });
   const member = await createUser(adminAuth, "member", { reportingManager: manager.userId });
 
   // --- admin dashboard --------------------------------------------------

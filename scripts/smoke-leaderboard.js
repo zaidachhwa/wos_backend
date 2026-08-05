@@ -54,18 +54,17 @@ const weekAhead = () => new Date(Date.now() + 7 * 24 * 3600 * 1000);
 const run = async () => {
   const adminAuth = await authFor(EMAIL, PASSWORD);
   // Task 3 (department segregation) generalized the leaderboard's roster
-  // scope to every non-admin role via resolveDepartmentScope, keyed on
-  // managedDepartment — so this manager needs one, department created first.
-  // Task 5 closed the gap that used to force a direct Mongoose write here;
-  // managedDepartment is now set through the real createUser API.
+  // scope to every non-admin role via resolveDepartmentScope — manager is
+  // now scoped by managedTeam (one team), so the manager and member share
+  // that one team.
   const dept = await axios.post(`${BASE}/departments`, { name: `Smoke Dept ${Date.now()}` }, adminAuth);
   const deptId = dept.data.data.department._id;
-  const manager = await createUser(adminAuth, "manager", { managedDepartment: deptId });
   const memberTeam = await axios.post(
     `${BASE}/teams`,
     { name: `Smoke Member Team ${Date.now()}`, department: deptId },
     adminAuth
   );
+  const manager = await createUser(adminAuth, "manager", { managedTeam: memberTeam.data.data.team._id });
   const member = await createUser(adminAuth, "member", { team: memberTeam.data.data.team._id });
 
   const project = await axios.post(
@@ -181,12 +180,10 @@ const run = async () => {
     "admin users never appear on the leaderboard, even after completing a task"
   );
 
-  // --- requirement 4: cross-team visibility, with team detail + filter ---
-  // Same department as manager's managedDepartment (set above) — the manager's
-  // default roster is department-scoped (Task 3), so this must be a sibling
-  // team within that department, not a separate department, to prove
-  // cross-team-within-department visibility rather than accidentally testing
-  // cross-department access that a scoped manager is no longer allowed.
+  // --- requirement 4 (revised for the manager/sub-lead hierarchy fix):
+  // manager's default roster is scoped to their single managedTeam, NOT the
+  // whole department — a sibling team in the same department must be
+  // invisible, and even an explicit ?team= for it is forbidden.
 
   const team = await axios.post(
     `${BASE}/teams`,
@@ -194,7 +191,6 @@ const run = async () => {
     adminAuth
   );
   const teamId = team.data.data.team._id;
-  const teamName = team.data.data.team.name;
 
   const teamMember = await createUser(adminAuth, "member", { team: teamId });
   const teamTask = await axios.post(
@@ -207,21 +203,20 @@ const run = async () => {
 
   const csv3 = await axios.get(`${BASE}/leaderboard?week=${todayStr()}&format=csv`, manager.auth);
   const allRows = parseLeaderboardCsv(csv3.data);
-  const teamRow = allRows.find((r) => r.name === teamMember.name);
-  assert.ok(teamRow, "the teammate shows up in the manager's department-scoped export");
-  assert.equal(teamRow.team, teamName, "the row is labeled with the member's team");
+  assert.ok(
+    !allRows.some((r) => r.name === teamMember.name),
+    "a member on a sibling team in the same department does NOT show up in the manager's roster (manager scope is one team, not the department)"
+  );
   assert.ok(
     allRows.some((r) => r.name === member.name),
-    "a member on a sibling team in the same department is visible alongside the teammate (department is the scope boundary, not team)"
+    "the manager's own teammate is still visible"
   );
 
-  const csv4 = await axios.get(`${BASE}/leaderboard?week=${todayStr()}&format=csv&team=${teamId}`, manager.auth);
-  const filteredRows = parseLeaderboardCsv(csv4.data);
-  assert.ok(filteredRows.length > 0, "the team filter returns at least the teammate");
-  assert.ok(
-    filteredRows.every((r) => r.name === teamMember.name),
-    "the team filter narrows the export to just that team"
-  );
+  const csv4 = await axios.get(`${BASE}/leaderboard?week=${todayStr()}&format=csv&team=${teamId}`, {
+    ...manager.auth,
+    validateStatus: () => true,
+  });
+  assert.equal(csv4.status, 403, "a manager cannot use ?team= to reach a same-department team they don't manage");
 
   // --- requirement 3: admin-configurable point values ---
 

@@ -9,7 +9,7 @@ export const updateProfile = async (req, res) => {
     if ("name" in req.body) user.name = req.body.name;
     if ("designation" in req.body) user.designation = req.body.designation;
     await user.save();
-    const safeUser = await User.findById(user._id).populate("department team managedDepartment");
+    const safeUser = await User.findById(user._id).populate("department team managedDepartment managedTeam managedTeams");
     return res.json({ success: true, message: "Profile updated", data: { user: safeUser } });
   } catch (error) {
     return res.status(400).json({ success: false, message: error.message });

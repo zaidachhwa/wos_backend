@@ -69,24 +69,25 @@ const run = async () => {
 
   assert.ok(namesA1.includes(memberA1.name), "a member-with-a-team sees themselves in their own directory");
 
-  // A manager's own `team` has no designed relationship to the department
-  // they manage (managedDepartment drives scope.teamIds, not the manager's
-  // own team) — put the manager's own team in a department they do NOT
-  // manage, so scope.teamIds excludes it. Before the fix, this meant a
-  // manager could never see their own directory entry.
+  // A manager's own `team` has no designed relationship to the team they
+  // manage (managedTeam drives scope.teamIds, not the manager's own team) —
+  // put the manager's own team in a department they do NOT manage, so
+  // scope.teamIds excludes it. Before the fix, this meant a manager could
+  // never see their own directory entry.
   const deptC = await axios.post(`${BASE}/departments`, { name: `Smoke Dept C ${Date.now()}` }, adminAuth);
   const deptCId = deptC.data.data.department._id;
   const teamC = await axios.post(`${BASE}/teams`, { name: `Smoke Team C ${Date.now()}`, department: deptCId }, adminAuth);
   const teamCId = teamC.data.data.team._id;
 
-  // Task 5 closed the gap that used to force a direct Mongoose write here —
-  // managedDepartment can now be set through the real createUser API.
-  const manager = await createUser(adminAuth, "manager", { team: teamCId, managedDepartment: deptAId });
+  // Hierarchy fix: manager is now scoped to a single managedTeam (not the
+  // whole managedDepartment a sub-admin gets) — set through the real
+  // createUser API.
+  const manager = await createUser(adminAuth, "manager", { team: teamCId, managedTeam: teamAId });
 
   const dirManager = await axios.get(`${BASE}/users/directory`, manager.auth);
   assert.ok(
     dirManager.data.data.users.map((u) => u.name).includes(manager.name),
-    "a manager whose own team sits outside their managed department still sees themselves in their own directory"
+    "a manager whose own team differs from their managed team still sees themselves in their own directory"
   );
 
   // --- Task 3: leaderboard's default roster (no ?team=) is department-scoped ---
@@ -94,18 +95,23 @@ const run = async () => {
   const csvA1 = await axios.get(`${BASE}/leaderboard?format=csv`, { ...memberA1.auth, validateStatus: () => true });
   assert.equal(csvA1.status, 403, "a plain member cannot export the csv report (unchanged, pre-existing rule)");
 
-  // Task 5 closed the gap — managedDepartment set directly via createUser.
-  const manager1 = await createUser(adminAuth, "manager", { managedDepartment: deptAId });
+  // Hierarchy fix: manager is scoped to a single managedTeam (teamA only —
+  // NOT the whole department, which now belongs to sub-admin's scope).
+  const manager1 = await createUser(adminAuth, "manager", { managedTeam: teamAId });
 
   const csvManagerDefault = await axios.get(`${BASE}/leaderboard?format=csv`, manager1.auth);
   assert.equal(csvManagerDefault.status, 200);
   assert.ok(
-    csvManagerDefault.data.includes(memberA1.name) || csvManagerDefault.data.includes(memberA2.name),
-    "Department-A manager's default roster includes at least one Department-A member"
+    csvManagerDefault.data.includes(memberA1.name),
+    "Team-A manager's default roster includes their own team's member"
+  );
+  assert.ok(
+    !csvManagerDefault.data.includes(memberA2.name),
+    "Team-A manager's default roster excludes a same-department, different-team member (manager scope is one team, not the whole department)"
   );
   assert.ok(
     !csvManagerDefault.data.includes(memberB.name),
-    "Department-A manager's default roster (no ?team=) excludes a Department-B member"
+    "Team-A manager's default roster (no ?team=) excludes a different department's member"
   );
 
   const csvManagerCrossTeam = await axios.get(
@@ -113,6 +119,16 @@ const run = async () => {
     { ...manager1.auth, validateStatus: () => true }
   );
   assert.equal(csvManagerCrossTeam.status, 403, "a manager cannot use ?team= to reach a team outside their own department");
+
+  const csvManagerSameDeptOtherTeam = await axios.get(
+    `${BASE}/leaderboard?format=csv&team=${teamA2Id}`,
+    { ...manager1.auth, validateStatus: () => true }
+  );
+  assert.equal(
+    csvManagerSameDeptOtherTeam.status,
+    403,
+    "a manager cannot use ?team= to reach a same-department team they don't personally manage"
+  );
 
   // --- fix: a team-less member/sublead's default roster (no ?team=) still
   // includes themselves. Before the fix, resolveDepartmentScope resolved
@@ -181,14 +197,14 @@ const run = async () => {
     "admin's departments list is unrestricted"
   );
 
-  // --- Task 5: manager requires managedDepartment, and is scoped to it ---
+  // --- Task 5: manager requires managedTeam, and is scoped to it ---
 
-  const managerNoDept = await axios.post(
+  const managerNoTeam = await axios.post(
     `${BASE}/users`,
     { name: "Bad Manager", email: `badmanager+${Date.now()}@wos.local`, password: "smokepass123", role: "manager" },
     { ...adminAuth, validateStatus: () => true }
   );
-  assert.equal(managerNoDept.status, 400, "creating a manager with no managedDepartment is rejected");
+  assert.equal(managerNoTeam.status, 400, "creating a manager with no managedTeam is rejected");
 
   const projectA = await axios.post(
     `${BASE}/projects`,
@@ -197,7 +213,7 @@ const run = async () => {
   );
   const projectAId = projectA.data.data.project._id;
 
-  const manager2 = await createUser(adminAuth, "manager", { managedDepartment: deptBId });
+  const manager2 = await createUser(adminAuth, "manager", { managedTeam: teamBId });
   const projectB = await axios.post(
     `${BASE}/projects`,
     { name: `Smoke Project B ${Date.now()}`, manager: manager2.userId, members: [memberB.userId] },
@@ -225,13 +241,28 @@ const run = async () => {
   );
   assert.equal(managerCrossDept.status, 400, "a Department-A manager cannot create a project with a Department-B member");
 
-  const managerSameDept = await axios.post(
+  const managerOwnTeam = await axios.post(
     `${BASE}/projects`,
-    { name: `Smoke Same-Dept Project ${Date.now()}`, manager: manager1.userId, members: [memberA2.userId] },
+    { name: `Smoke Own-Team Project ${Date.now()}`, manager: manager1.userId, members: [memberA1.userId] },
     manager1.auth
   );
-  assert.equal(managerSameDept.status, 201, "a Department-A manager CAN create a project with only Department-A members");
-  await axios.delete(`${BASE}/projects/${managerSameDept.data.data.project._id}`, adminAuth);
+  assert.equal(managerOwnTeam.status, 201, "a manager CAN create a project with a member of their own managed team");
+  await axios.delete(`${BASE}/projects/${managerOwnTeam.data.data.project._id}`, adminAuth);
+
+  // Hierarchy fix: manager's scope narrowed from the whole department to one
+  // team, so a same-department member on a DIFFERENT team is now out of
+  // scope too — this used to be allowed back when manager == sub-admin's
+  // department-wide reach.
+  const managerSameDeptOtherTeam = await axios.post(
+    `${BASE}/projects`,
+    { name: "Should fail same-dept-different-team", manager: manager1.userId, members: [memberA2.userId] },
+    { ...manager1.auth, validateStatus: () => true }
+  );
+  assert.equal(
+    managerSameDeptOtherTeam.status,
+    400,
+    "a manager cannot create a project with a same-department member outside their one managed team"
+  );
 
   const adminCrossDept = await axios.post(
     `${BASE}/projects`,

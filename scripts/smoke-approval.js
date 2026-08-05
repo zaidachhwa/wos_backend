@@ -43,11 +43,12 @@ const run = async () => {
     adminAuth
   );
 
-  const manager = await createUser(adminAuth, "manager", null, { managedDepartment: deptId });
-  // member must sit on a team inside manager's department — createProject validates
-  // manager/members are within the acting manager's department scope (Task 6).
-  const member = await createUser(adminAuth, "member", manager.userId, { team: managerTeam.data.data.team._id });
-  const outsiderManager = await createUser(adminAuth, "manager", null, { managedDepartment: deptId });
+  const managerTeamId = managerTeam.data.data.team._id;
+  const manager = await createUser(adminAuth, "manager", null, { managedTeam: managerTeamId });
+  // member must sit on manager's managed team — createProject validates
+  // manager/members are within the acting manager's team scope (Task 6).
+  const member = await createUser(adminAuth, "member", manager.userId, { team: managerTeamId });
+  const outsiderManager = await createUser(adminAuth, "manager", null, { managedTeam: managerTeamId });
 
   const project = await axios.post(
     `${BASE}/projects`,

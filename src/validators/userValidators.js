@@ -1,7 +1,7 @@
 import { ROLES } from "../constants/roles.constants.js";
 
 export const validateCreateUser = (req, res, next) => {
-  const { name, email, password, role, managedDepartment } = req.body;
+  const { name, email, password, role, managedDepartment, managedTeam } = req.body;
   if (!name || !email || !password || !role) {
     return res
       .status(400)
@@ -18,10 +18,15 @@ export const validateCreateUser = (req, res, next) => {
   if (!ROLES.includes(role)) {
     return res.status(400).json({ success: false, message: "Invalid role" });
   }
-  if (["manager", "subadmin"].includes(role) && !managedDepartment) {
+  if (role === "subadmin" && !managedDepartment) {
     return res
       .status(400)
-      .json({ success: false, message: "managedDepartment is required for the manager/subadmin roles" });
+      .json({ success: false, message: "managedDepartment is required for the subadmin role" });
+  }
+  if (role === "manager" && !managedTeam) {
+    return res
+      .status(400)
+      .json({ success: false, message: "managedTeam is required for the manager role" });
   }
   next();
 };

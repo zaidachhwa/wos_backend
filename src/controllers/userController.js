@@ -1,8 +1,18 @@
 import bcrypt from "bcrypt";
 
 import User from "../models/User.js";
+import Team from "../models/Team.js";
 import { paginationParams, paginationMeta } from "../utils/pagination.js";
-import { getManagedTeamIds, getManagedUserIds, resolveDepartmentScope } from "../utils/departmentScope.js";
+import { getManagedTeamIdsForActor, getManagedUserIds, resolveDepartmentScope } from "../utils/departmentScope.js";
+
+// Which target roles each scoped (non-admin) actor may create/edit/deactivate.
+// Manager and sub-lead manage their team's *members* only — not other
+// managers/sub-leads/sub-admins who happen to share the team.
+const MANAGEABLE_ROLES = {
+  subadmin: ["sublead", "member"],
+  manager: ["member"],
+  sublead: ["member"],
+};
 
 // Would this update deactivate or demote the last remaining active admin,
 // locking everyone out of admin-only actions? Checked before isActive:false
@@ -21,14 +31,28 @@ const wouldRemoveLastAdmin = async (target, updates) => {
 
 export const createUser = async (req, res) => {
   try {
-    const { name, email, password, role, designation, department, team, reportingManager, managedDepartment } =
-      req.body;
+    const {
+      name,
+      email,
+      password,
+      role,
+      designation,
+      department,
+      team,
+      reportingManager,
+      managedDepartment,
+      managedTeam,
+      managedTeams,
+    } = req.body;
 
-    if (req.user.role === "subadmin") {
-      if (["admin", "manager", "subadmin"].includes(role)) {
+    const allowedRoles = MANAGEABLE_ROLES[req.user.role];
+    let resolvedDepartment = department || null;
+
+    if (allowedRoles) {
+      if (!allowedRoles.includes(role)) {
         return res.status(403).json({ success: false, message: "Forbidden" });
       }
-      const managedTeamIds = (await getManagedTeamIds(req.user.managedDepartment)).map(String);
+      const managedTeamIds = (await getManagedTeamIdsForActor(req.user)).map(String);
       if (!team || !managedTeamIds.includes(String(team))) {
         return res
           .status(403)
@@ -42,6 +66,12 @@ export const createUser = async (req, res) => {
             .json({ success: false, message: "reportingManager must be one of your managed users" });
         }
       }
+      // Department is derived from the assigned team, not chosen directly —
+      // works for subadmin (whole department), manager (one team), and
+      // sublead (whose managed teams could in principle sit in different
+      // departments) alike.
+      const teamDoc = await Team.findById(team, "department");
+      resolvedDepartment = teamDoc?.department || null;
     }
 
     const existing = await User.findOne({ email: String(email).toLowerCase() });
@@ -54,10 +84,12 @@ export const createUser = async (req, res) => {
       password: await bcrypt.hash(password, 10),
       role,
       designation,
-      department: req.user.role === "subadmin" ? req.user.managedDepartment : department || null,
+      department: resolvedDepartment,
       team: team || null,
       reportingManager: reportingManager || null,
-      managedDepartment: ["manager", "subadmin"].includes(role) ? managedDepartment : null,
+      managedDepartment: role === "subadmin" ? managedDepartment : null,
+      managedTeam: role === "manager" ? managedTeam : null,
+      managedTeams: role === "sublead" ? managedTeams || [] : [],
     });
     const safeUser = await User.findById(user._id);
     return res.status(201).json({ success: true, message: "User created", data: { user: safeUser } });
@@ -72,13 +104,12 @@ export const createUser = async (req, res) => {
 export const listUsers = async (req, res) => {
   try {
     const pageParams = paginationParams(req.query);
-    const baseFilter =
-      req.user.role === "subadmin"
-        ? { _id: { $in: await getManagedUserIds(req.user) } }
-        : {};
+    const baseFilter = MANAGEABLE_ROLES[req.user.role]
+      ? { _id: { $in: await getManagedUserIds(req.user) } }
+      : {};
     const total = await User.countDocuments(baseFilter);
     let query = User.find(baseFilter).populate(
-      "department team reportingManager managedDepartment",
+      "department team reportingManager managedDepartment managedTeam managedTeams",
       "name email"
     );
     if (pageParams) query = query.skip(pageParams.skip).limit(pageParams.limit);
@@ -119,9 +150,13 @@ export const getUserById = async (req, res) => {
       ? { _id: req.params.id, $or: [{ team: { $in: scope.teamIds } }, { _id: req.user._id }] }
       : { _id: req.params.id };
     const user = await User.findOne(filter)
-      .select("name email role designation department team managedDepartment reportingManager isActive createdAt")
+      .select(
+        "name email role designation department team managedDepartment managedTeam managedTeams reportingManager isActive createdAt"
+      )
       .populate("department", "name")
       .populate("team", "name")
+      .populate("managedTeam", "name")
+      .populate("managedTeams", "name")
       .populate("reportingManager", "name role");
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
@@ -133,21 +168,27 @@ export const getUserById = async (req, res) => {
   }
 };
 
+const ALLOWED_UPDATE_FIELDS = {
+  admin: [
+    "name",
+    "designation",
+    "role",
+    "department",
+    "team",
+    "reportingManager",
+    "isActive",
+    "managedDepartment",
+    "managedTeam",
+    "managedTeams",
+  ],
+  subadmin: ["name", "designation", "role", "team", "isActive"],
+  manager: ["name", "designation", "role", "team", "isActive"],
+  sublead: ["name", "designation", "role", "team", "isActive"],
+};
+
 export const updateUser = async (req, res) => {
   try {
-    const allowed =
-      req.user.role === "subadmin"
-        ? ["name", "designation", "role", "team", "isActive"]
-        : [
-            "name",
-            "designation",
-            "role",
-            "department",
-            "team",
-            "reportingManager",
-            "isActive",
-            "managedDepartment",
-          ];
+    const allowed = ALLOWED_UPDATE_FIELDS[req.user.role] || [];
     const updates = {};
     for (const key of allowed) {
       if (key in req.body) updates[key] = req.body[key];
@@ -157,11 +198,12 @@ export const updateUser = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    if (req.user.role === "subadmin") {
-      if (["admin", "manager", "subadmin"].includes(target.role)) {
+    const allowedRoles = MANAGEABLE_ROLES[req.user.role];
+    if (allowedRoles) {
+      if (!allowedRoles.includes(target.role)) {
         return res.status(403).json({ success: false, message: "Forbidden" });
       }
-      if (updates.role && ["admin", "manager", "subadmin"].includes(updates.role)) {
+      if (updates.role && !allowedRoles.includes(updates.role)) {
         return res.status(403).json({ success: false, message: "Forbidden" });
       }
       const managedUserIds = (await getManagedUserIds(req.user)).map(String);
@@ -169,7 +211,7 @@ export const updateUser = async (req, res) => {
         return res.status(404).json({ success: false, message: "User not found" });
       }
       if ("team" in updates) {
-        const managedTeamIds = (await getManagedTeamIds(req.user.managedDepartment)).map(String);
+        const managedTeamIds = (await getManagedTeamIdsForActor(req.user)).map(String);
         if (!updates.team || !managedTeamIds.includes(String(updates.team))) {
           return res
             .status(403)
@@ -177,20 +219,37 @@ export const updateUser = async (req, res) => {
         }
       }
     } else {
+      // admin — no scope restriction, but must keep managedDepartment/
+      // managedTeam/managedTeams consistent with whatever role results.
       const resultingRole = "role" in updates ? updates.role : target.role;
-      if (["manager", "subadmin"].includes(resultingRole)) {
+
+      if (resultingRole === "subadmin") {
         const resultingManagedDepartment =
           "managedDepartment" in updates ? updates.managedDepartment : target.managedDepartment;
         if (!resultingManagedDepartment) {
           return res.status(400).json({
             success: false,
-            message: "managedDepartment is required for the manager/subadmin roles",
+            message: "managedDepartment is required for the subadmin role",
           });
         }
       } else {
-        // Role isn't (staying) manager/subadmin — clear any stale managedDepartment
-        // so a later re-promotion can't silently inherit a previous department.
         updates.managedDepartment = null;
+      }
+
+      if (resultingRole === "manager") {
+        const resultingManagedTeam = "managedTeam" in updates ? updates.managedTeam : target.managedTeam;
+        if (!resultingManagedTeam) {
+          return res.status(400).json({
+            success: false,
+            message: "managedTeam is required for the manager role",
+          });
+        }
+      } else {
+        updates.managedTeam = null;
+      }
+
+      if (resultingRole !== "sublead") {
+        updates.managedTeams = [];
       }
     }
 
@@ -216,8 +275,9 @@ export const deleteUser = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    if (req.user.role === "subadmin") {
-      if (["admin", "manager", "subadmin"].includes(target.role)) {
+    const allowedRoles = MANAGEABLE_ROLES[req.user.role];
+    if (allowedRoles) {
+      if (!allowedRoles.includes(target.role)) {
         return res.status(403).json({ success: false, message: "Forbidden" });
       }
       const managedUserIds = (await getManagedUserIds(req.user)).map(String);
