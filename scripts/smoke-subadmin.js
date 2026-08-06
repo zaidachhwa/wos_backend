@@ -441,12 +441,25 @@ const run = async () => {
   );
   assert.equal(timeBlockOutOfScope.status, 403, "subadmin cannot create a time block for an outsider");
 
-  // --- fix: subadmin cannot assign/promote to role "manager" (Critical
-  // finding 1) — manager is unscoped company-wide everywhere else in this
-  // codebase, so allowing it would let a subadmin escape the department
-  // boundary entirely.
+  // --- hierarchy fix: subadmin CAN assign/promote to role "manager", since
+  // manager is now scoped to a single managedTeam (not company-wide) — but
+  // only within the subadmin's own managed department.
 
-  const createManagerForbidden = await axios.post(
+  const createManagerInScope = await axios.post(
+    `${BASE}/users`,
+    {
+      name: "Subadmin-appointed manager",
+      email: `subadminmgr+${Date.now()}@wos.local`,
+      password: "smokepass123",
+      role: "manager",
+      team: teamAId,
+      managedTeam: teamAId,
+    },
+    subadmin.auth
+  );
+  assert.equal(createManagerInScope.status, 201, "subadmin creates a manager whose managedTeam is in their department");
+
+  const createManagerOutOfScope = await axios.post(
     `${BASE}/users`,
     {
       name: "Should fail",
@@ -454,24 +467,50 @@ const run = async () => {
       password: "smokepass123",
       role: "manager",
       team: teamAId,
-      // managedTeam included so this trips the subadmin role-restriction
-      // (403) rather than the manager-requires-managedTeam validation (400)
-      // — this test is about the role restriction specifically.
-      managedTeam: teamAId,
+      managedTeam: otherTeamId,
     },
     { ...subadmin.auth, validateStatus: () => true }
   );
-  assert.equal(createManagerForbidden.status, 403, "subadmin cannot create a user with role manager");
+  assert.equal(
+    createManagerOutOfScope.status,
+    403,
+    "subadmin cannot appoint a manager over a team outside their department"
+  );
 
-  const updateToManagerForbidden = await axios.patch(
-    `${BASE}/users/${memberA.userId}`,
-    { role: "manager" },
+  // Dedicated fixture (not memberA/memberB — both are reused heavily further
+  // down this file) so promoting it to manager can't affect later assertions.
+  const promoteCandidate = await createUser(adminAuth, "member", { team: teamAId, department: deptId });
+  const updateToManagerInScope = await axios.patch(
+    `${BASE}/users/${promoteCandidate.userId}`,
+    { role: "manager", managedTeam: teamBId },
+    subadmin.auth
+  );
+  assert.equal(
+    updateToManagerInScope.status,
+    200,
+    "subadmin promotes an in-scope member to manager over another in-department team"
+  );
+
+  const updateToManagerOutOfScope = await axios.patch(
+    `${BASE}/users/${memberB.userId}`,
+    { role: "manager", managedTeam: otherTeamId },
     { ...subadmin.auth, validateStatus: () => true }
   );
   assert.equal(
-    updateToManagerForbidden.status,
+    updateToManagerOutOfScope.status,
     403,
-    "subadmin cannot promote an in-scope member to role manager"
+    "subadmin cannot promote a member to manager over a team outside their department"
+  );
+
+  const subadminEditsManagerDesignation = await axios.patch(
+    `${BASE}/users/${createManagerInScope.data.data.user._id}`,
+    { designation: "Team Lead" },
+    subadmin.auth
+  );
+  assert.equal(
+    subadminEditsManagerDesignation.status,
+    200,
+    "subadmin edits a manager already within their department"
   );
 
   // --- fix: subadmin cannot attach a new user's reportingManager to an
@@ -611,10 +650,10 @@ const run = async () => {
     "profile update response's populated managedDepartment._id matches the subadmin's actual managed department"
   );
 
-  // --- fix: a subadmin cannot demote/deactivate an in-department manager
-  // (re-review finding 2) — manager is unscoped/company-wide, same as
-  // admin/subadmin, so the existing admin/subadmin target-role guard must
-  // also cover manager.
+  // --- hierarchy fix: a subadmin CAN demote/deactivate an in-department
+  // manager — sub-admin manages its whole department, managers included,
+  // now that manager is scoped to one team rather than being unscoped/
+  // company-wide.
 
   const managerInDept = await createUser(adminAuth, "manager", {
     team: teamAId,
@@ -622,26 +661,25 @@ const run = async () => {
     managedTeam: teamAId,
   });
 
-  const subadminUpdateManagerForbidden = await axios.patch(
+  const subadminDemotesManager = await axios.patch(
     `${BASE}/users/${managerInDept.userId}`,
     { role: "member" },
-    { ...subadmin.auth, validateStatus: () => true }
+    subadmin.auth
   );
+  assert.equal(subadminDemotesManager.status, 200, "subadmin demotes an in-department manager to member");
   assert.equal(
-    subadminUpdateManagerForbidden.status,
-    403,
-    "subadmin cannot demote an in-department manager"
+    subadminDemotesManager.data.data.user.managedTeam,
+    null,
+    "demoting away from manager clears the stale managedTeam"
   );
 
-  const subadminDeleteManagerForbidden = await axios.delete(`${BASE}/users/${managerInDept.userId}`, {
-    ...subadmin.auth,
-    validateStatus: () => true,
+  const managerToDeactivate = await createUser(adminAuth, "manager", {
+    team: teamBId,
+    department: deptId,
+    managedTeam: teamBId,
   });
-  assert.equal(
-    subadminDeleteManagerForbidden.status,
-    403,
-    "subadmin cannot deactivate an in-department manager"
-  );
+  const subadminDeactivatesManager = await axios.delete(`${BASE}/users/${managerToDeactivate.userId}`, subadmin.auth);
+  assert.equal(subadminDeactivatesManager.status, 200, "subadmin deactivates an in-department manager");
 
   // --- fix: managedDepartment is cleared when a subadmin is demoted, so a
   // later re-promotion can't silently inherit the stale value (minor finding)

@@ -6,10 +6,13 @@ import { paginationParams, paginationMeta } from "../utils/pagination.js";
 import { getManagedTeamIdsForActor, getManagedUserIds, resolveDepartmentScope } from "../utils/departmentScope.js";
 
 // Which target roles each scoped (non-admin) actor may create/edit/deactivate.
+// Sub-admin manages its whole department, including the managers who run
+// each team within it (their own managedTeam is scope-checked separately
+// below — a sub-admin can't hand a manager a team outside their department).
 // Manager and sub-lead manage their team's *members* only — not other
 // managers/sub-leads/sub-admins who happen to share the team.
 const MANAGEABLE_ROLES = {
-  subadmin: ["sublead", "member"],
+  subadmin: ["manager", "sublead", "member"],
   manager: ["member"],
   sublead: ["member"],
 };
@@ -57,6 +60,11 @@ export const createUser = async (req, res) => {
         return res
           .status(403)
           .json({ success: false, message: "team must be one of your managed teams" });
+      }
+      if (role === "manager" && !managedTeamIds.includes(String(managedTeam))) {
+        return res
+          .status(403)
+          .json({ success: false, message: "managedTeam must be one of your managed teams" });
       }
       if (reportingManager) {
         const managedUserIds = (await getManagedUserIds(req.user)).map(String);
@@ -181,7 +189,7 @@ const ALLOWED_UPDATE_FIELDS = {
     "managedTeam",
     "managedTeams",
   ],
-  subadmin: ["name", "designation", "role", "team", "isActive"],
+  subadmin: ["name", "designation", "role", "team", "isActive", "managedTeam"],
   manager: ["name", "designation", "role", "team", "isActive"],
   sublead: ["name", "designation", "role", "team", "isActive"],
 };
@@ -217,6 +225,26 @@ export const updateUser = async (req, res) => {
             .status(403)
             .json({ success: false, message: "team must be one of your managed teams" });
         }
+      }
+      if ("managedTeam" in updates) {
+        const managedTeamIds = (await getManagedTeamIdsForActor(req.user)).map(String);
+        if (!updates.managedTeam || !managedTeamIds.includes(String(updates.managedTeam))) {
+          return res
+            .status(403)
+            .json({ success: false, message: "managedTeam must be one of your managed teams" });
+        }
+      }
+      const resultingRole = "role" in updates ? updates.role : target.role;
+      if (resultingRole === "manager") {
+        const resultingManagedTeam = "managedTeam" in updates ? updates.managedTeam : target.managedTeam;
+        if (!resultingManagedTeam) {
+          return res.status(400).json({
+            success: false,
+            message: "managedTeam is required for the manager role",
+          });
+        }
+      } else {
+        updates.managedTeam = null;
       }
     } else {
       // admin — no scope restriction, but must keep managedDepartment/

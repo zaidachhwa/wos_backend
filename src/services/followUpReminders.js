@@ -5,6 +5,14 @@ import { emitTo } from "../utils/io.js";
 import { localDay } from "../controllers/notificationController.js";
 import { emailConfigured, sendEmail } from "./resend.js";
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Resend's default rate limit is 2 requests/second — sending a whole
+// roster back-to-back trips it well before getting through everyone
+// (observed firsthand: a few hundred recipients all 429'd). A fixed gap
+// between sends keeps this under the limit without needing a queue.
+const SEND_GAP_MS = 550;
+
 // The 8:30pm nudge: emails everyone who hasn't submitted today's evening
 // follow-up yet. Idempotent across restarts — an upserted Notification
 // (title carries the date) marks "already emailed today" per user, same
@@ -30,8 +38,11 @@ export const sendEveningFollowUpReminders = async (now = new Date()) => {
   const pending = users.filter((u) => !submitted.has(String(u._id)));
 
   let sent = 0;
+  let attempted = 0;
   for (const user of pending) {
     if (alreadyEmailed.has(String(user._id))) continue;
+    if (attempted > 0) await sleep(SEND_GAP_MS);
+    attempted += 1;
     try {
       await sendEmail({
         to: user.email,
