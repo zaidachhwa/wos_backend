@@ -226,9 +226,12 @@ export const updateUser = async (req, res) => {
             .json({ success: false, message: "team must be one of your managed teams" });
         }
       }
-      if ("managedTeam" in updates) {
+      // Only validate scope when managedTeam is actually being set to a team —
+      // the frontend always sends this key (null for non-manager roles) to
+      // clear it, which the resultingRole branch below already handles.
+      if (updates.managedTeam) {
         const managedTeamIds = (await getManagedTeamIdsForActor(req.user)).map(String);
-        if (!updates.managedTeam || !managedTeamIds.includes(String(updates.managedTeam))) {
+        if (!managedTeamIds.includes(String(updates.managedTeam))) {
           return res
             .status(403)
             .json({ success: false, message: "managedTeam must be one of your managed teams" });
