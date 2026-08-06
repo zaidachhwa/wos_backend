@@ -44,6 +44,7 @@ export const NOTIFICATION_TYPES = [
   "status_changed",
   "deadline_reminder",
   "followup_reminder",
+  "followup_reminder_email",
   "followup_submitted",
   "followup_reviewed",
   "project_updated",

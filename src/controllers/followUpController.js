@@ -5,6 +5,7 @@ import { recordActivity, notify } from "../utils/record.js";
 import { paginationParams, paginationMeta } from "../utils/pagination.js";
 import { localDay } from "./notificationController.js";
 import { aiConfigured, generateText } from "../services/gemini.js";
+import { sendEveningFollowUpReminders } from "../services/followUpReminders.js";
 import { getManagedUserIds } from "../utils/departmentScope.js";
 
 const TEAM_SCOPE_ROLES = ["admin", "manager", "subadmin", "sublead"];
@@ -294,6 +295,18 @@ export const workLog = async (req, res) => {
     }
 
     return res.json({ success: true, message: "Work log generated", data: { date: today, text } });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: "Something went wrong" });
+  }
+};
+
+// Manual "run it right now" escape hatch around the same function the
+// 8:30pm server.js interval calls — mirrors leaderboardController.runOverdueSweep.
+export const runEveningReminderSweep = async (req, res) => {
+  try {
+    const result = await sendEveningFollowUpReminders();
+    return res.json({ success: true, message: "Evening reminder sweep completed", data: result });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ success: false, message: "Something went wrong" });
