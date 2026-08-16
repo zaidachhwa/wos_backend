@@ -96,7 +96,7 @@ export const createTask = async (req, res) => {
       description,
       assignees: isMember ? [req.user._id] : assignees || [],
       priority,
-      status: isMember ? "backlog" : status,
+      status: isMember ? "todo" : status,
       estimatedHours,
       deadline: deadline || null,
       startTime: startTime || null,
@@ -184,15 +184,16 @@ export const createTask = async (req, res) => {
 };
 
 // Mirrors followUpController.reviewFollowUp's state-machine: the creator's
-// reportingManager, an admin, or a subadmin whose managed department
-// includes the creator, may decide — and only while pending.
+// reportingManager, an admin, a subadmin whose managed department includes
+// the creator, or a sublead whose managed teams include the creator, may
+// decide — and only while pending.
 const canDecideApproval = async (user, task) => {
   if (user.role === "admin") return true;
   if (!task.createdBy) return false;
   const creator = await User.findById(task.createdBy);
   if (!creator) return false;
   if (String(creator.reportingManager) === String(user._id)) return true;
-  if (user.role === "subadmin") {
+  if (["subadmin", "sublead"].includes(user.role)) {
     const managedIds = (await getManagedUserIds(user)).map(String);
     return managedIds.includes(String(creator._id));
   }
@@ -213,6 +214,9 @@ export const approveTask = async (req, res) => {
     }
 
     task.approvalStatus = "approved";
+    // Approved work starts moving immediately rather than sitting idle —
+    // the approver can still override via req.body.status below.
+    task.status = "in_progress";
     // Approver may also adjust these in the same request (e.g. add teammates,
     // bump priority) — same whitelist as a full task edit.
     for (const key of ["assignees", "status", "priority"]) {
@@ -323,6 +327,7 @@ export const listTasks = async (req, res) => {
     let query = Task.find(filter)
       .populate("assignees", "name role designation")
       .populate("blockedBy", "title status")
+      .populate("project", "name")
       .sort("-createdAt")
       .lean();
     if (pageParams) query = query.skip(pageParams.skip).limit(pageParams.limit);
@@ -343,6 +348,7 @@ export const getTask = async (req, res) => {
     const task = await Task.findById(req.params.id)
       .populate("assignees", "name role designation")
       .populate("blockedBy", "title status")
+      .populate("project", "name")
       .populate("comments.user", "name role designation");
     if (!task) {
       return res.status(404).json({ success: false, message: "Task not found" });
@@ -492,7 +498,7 @@ export const updateTask = async (req, res) => {
         deadline: nextDeadline,
         startTime: task.startTime,
         endTime: task.endTime,
-        status: "backlog",
+        status: "todo",
         subtasks: [],
         comments: [],
         blockedBy: [],

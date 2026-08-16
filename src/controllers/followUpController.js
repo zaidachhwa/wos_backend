@@ -10,10 +10,12 @@ import { getManagedUserIds } from "../utils/departmentScope.js";
 
 const TEAM_SCOPE_ROLES = ["admin", "manager", "subadmin", "sublead"];
 
-// ponytail: plain Date arithmetic, no date library in this project
+// ponytail: plain Date arithmetic, no date library in this project. `dateStr`
+// is a "YYYY-MM-DD" org (IST) calendar day — the explicit "+05:30" offset
+// makes these bounds correct regardless of the server process's own timezone.
 const dayBoundsFor = (dateStr) => ({
-  start: new Date(`${dateStr}T00:00:00`),
-  end: new Date(`${dateStr}T23:59:59.999`),
+  start: new Date(`${dateStr}T00:00:00+05:30`),
+  end: new Date(`${dateStr}T23:59:59.999+05:30`),
 });
 
 export const upsertFollowUp = async (req, res) => {

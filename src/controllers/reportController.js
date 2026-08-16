@@ -2,12 +2,14 @@ import Task from "../models/Task.js";
 import FollowUp from "../models/FollowUp.js";
 import User from "../models/User.js";
 import { reportScopeFilter } from "../utils/departmentScope.js";
+import { istDayStr, istClock } from "../utils/istTime.js";
 
 const DAY = 24 * 3600 * 1000;
 
-const pad = (n) => String(n).padStart(2, "0");
-const dayStr = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const isWeekday = (d) => d.getDay() !== 0 && d.getDay() !== 6;
+// Org (IST) calendar day/weekday of an instant — not the server process's
+// own timezone, see utils/istTime.js.
+const dayStr = (d) => istDayStr(d);
+const isWeekday = (d) => istClock(d).dayOfWeek !== 0 && istClock(d).dayOfWeek !== 6;
 
 const weekdaysBetween = (from, to) => {
   let count = 0;
@@ -43,8 +45,8 @@ export const teamReport = async (req, res) => {
     if (!from || !to) {
       return res.status(400).json({ success: false, message: "from and to are required" });
     }
-    const fromDate = new Date(`${from}T00:00:00`);
-    const toDate = new Date(`${to}T23:59:59`);
+    const fromDate = new Date(`${from}T00:00:00+05:30`);
+    const toDate = new Date(`${to}T23:59:59+05:30`);
     if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime()) || fromDate > toDate) {
       return res.status(400).json({ success: false, message: "from and to must be a valid date range" });
     }

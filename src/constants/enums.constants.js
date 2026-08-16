@@ -1,19 +1,10 @@
-export const PRIORITIES = ["low", "medium", "high", "critical"];
+export const PRIORITIES = ["low", "medium", "high"];
 
 export const PROJECT_STATUSES = ["planning", "active", "review", "on_hold", "completed", "cancelled"];
 
 export const PROJECT_TYPES = ["internal", "client", "product"];
 
-export const TASK_STATUSES = [
-  "backlog",
-  "todo",
-  "in_progress",
-  "review",
-  "testing",
-  "client_review",
-  "completed",
-  "blocked",
-];
+export const TASK_STATUSES = ["todo", "in_progress", "review", "testing", "client_review", "completed", "blocked"];
 
 // A task in any of these statuses is never "overdue" — completed work is
 // done, and client_review means the ball is in the client's court, not ours.

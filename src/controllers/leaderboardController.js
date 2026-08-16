@@ -1,29 +1,38 @@
 import Activity from "../models/Activity.js";
 import Task from "../models/Task.js";
 import User from "../models/User.js";
+import Project from "../models/Project.js";
 import { pointsForCompletedTask } from "../utils/points.js";
 import { getPointsByPriority, setPointsByPriority, getPenalties, setPenalties } from "../utils/pointsConfig.js";
 import { resolveDepartmentScope } from "../utils/departmentScope.js";
 import { applyOverduePenalties } from "../services/overdueSweep.js";
+import { istDayStr, istClock } from "../utils/istTime.js";
 
-const mondayOf = (date) => {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  const day = d.getDay(); // 0 = Sun .. 6 = Sat
+// The IST calendar date (YYYY-MM-DD) of the Monday that starts `date`'s
+// week. Shifts by +5:30 purely to read the correct IST day-of-week/date —
+// never used as a real instant itself, see utils/istTime.js.
+const mondayDateStr = (date) => {
+  const ist = new Date(new Date(date).getTime() + 5.5 * 60 * 60 * 1000);
+  const day = ist.getUTCDay(); // 0 = Sun .. 6 = Sat
   const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  return d;
+  ist.setUTCDate(ist.getUTCDate() + diff);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${ist.getUTCFullYear()}-${pad(ist.getUTCMonth() + 1)}-${pad(ist.getUTCDate())}`;
 };
+
+// Real, correct UTC instant for that Monday's IST midnight — built via the
+// same "+05:30" ISO-offset trick as taskDates.js, so it's safe to use
+// directly in DB range queries (unlike a shift-then-read Date, which only
+// has meaningful *symbolic* digits, not a meaningful real timestamp).
+const mondayOf = (date) => new Date(`${mondayDateStr(date)}T00:00:00+05:30`);
 
 const weekBoundsOf = (date) => {
   const start = mondayOf(date);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 6);
-  end.setHours(23, 59, 59, 999);
+  const end = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000 - 1);
   return { start, end };
 };
 
-const dayStr = (d) => new Date(d).toISOString().slice(0, 10);
+const dayStr = (d) => istDayStr(d);
 
 const REPORT_ROLES = ["admin", "manager", "subadmin"];
 
@@ -36,13 +45,13 @@ export const getLeaderboard = async (req, res) => {
       return res.status(403).json({ success: false, message: "Forbidden" });
     }
 
-    // ponytail: locked to Monday-only per requirement, checked against server
-    // local time (same clock the week math below already assumes). CSV export
-    // is an explicit admin/manager report action, so it bypasses the lock —
+    // ponytail: locked to Monday-only per requirement, checked against IST
+    // (same clock the week math below already assumes). CSV export is an
+    // explicit admin/manager report action, so it bypasses the lock —
     // otherwise there'd be no way to pull last week's numbers on a Friday.
     // Admins also see the live view any day, for oversight.
     const bypassLock = format === "csv" || req.user.role === "admin" || req.user.role === "subadmin";
-    if (!bypassLock && new Date().getDay() !== 1) {
+    if (!bypassLock && istClock(new Date()).dayOfWeek !== 1) {
       const nextMonday = mondayOf(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
       return res.json({
         success: true,
@@ -94,16 +103,20 @@ export const getLeaderboard = async (req, res) => {
 
     const taskIds = [...latestByTask.keys()];
     const tasks = await Task.find({ _id: { $in: taskIds } }).select(
-      "title priority assignees bonusPoints deadline endTime"
+      "title priority assignees bonusPoints deadline endTime project"
     );
     const taskById = new Map(tasks.map((t) => [String(t._id), t]));
+
+    const projectIds = [...new Set(tasks.map((t) => String(t.project)))];
+    const projects = await Project.find({ _id: { $in: projectIds } }).select("weightage");
+    const weightageByProject = new Map(projects.map((p) => [String(p._id), p.weightage || 0]));
 
     const pointsByUser = new Map();
     const tasksByUser = new Map();
     for (const [taskId, activity] of latestByTask) {
       const task = taskById.get(taskId);
       if (!task) continue;
-      const points = pointsForCompletedTask(task, activity.createdAt);
+      const points = pointsForCompletedTask(task, activity.createdAt, weightageByProject.get(String(task.project)));
       // Confirmed: every assignee gets full points, not split.
       for (const assigneeId of task.assignees) {
         const id = String(assigneeId);
@@ -213,7 +226,7 @@ export const updatePointsConfig = async (req, res) => {
   try {
     const { pointsByPriority, penalties } = req.body;
     const pointsError =
-      pointsByPriority && validateNonNegative(pointsByPriority, ["low", "medium", "high", "critical"], "pointsByPriority");
+      pointsByPriority && validateNonNegative(pointsByPriority, ["low", "medium", "high"], "pointsByPriority");
     if (pointsError) return res.status(400).json({ success: false, message: pointsError });
     const penaltiesError =
       penalties && validateNonNegative(penalties, ["completedLate", "overdue", "bug"], "penalties");

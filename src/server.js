@@ -7,6 +7,7 @@ import { loadPointsConfig } from "./utils/pointsConfig.js";
 import { applyOverduePenalties } from "./services/overdueSweep.js";
 import { sendEveningFollowUpReminders } from "./services/followUpReminders.js";
 import { localDay } from "./controllers/notificationController.js";
+import { istClock } from "./utils/istTime.js";
 
 const PORT = process.env.PORT || 5000;
 
@@ -26,9 +27,9 @@ const start = async () => {
       applyOverduePenalties().catch((error) => console.error("overdue sweep failed:", error.message));
     }, 2 * 60 * 1000);
 
-    // Evening follow-up reminder emails, once a day at/after 8:30pm server
-    // time. Checked every minute rather than scheduled for the exact instant
-    // — simplest way to survive the process being down at 20:30 sharp (fires
+    // Evening follow-up reminder emails, once a day at/after 8:30pm IST.
+    // Checked every minute rather than scheduled for the exact instant —
+    // simplest way to survive the process being down at 20:30 sharp (fires
     // on the first tick after) without pulling in a cron library. The
     // per-user "already emailed today" Notification marker (see
     // services/followUpReminders.js) makes a same-day re-run after a restart
@@ -36,7 +37,8 @@ const start = async () => {
     let lastReminderRunDate = null;
     setInterval(() => {
       const now = new Date();
-      const pastReminderTime = now.getHours() > 20 || (now.getHours() === 20 && now.getMinutes() >= 30);
+      const { hours, minutes } = istClock(now);
+      const pastReminderTime = hours > 20 || (hours === 20 && minutes >= 30);
       const today = localDay(now);
       if (pastReminderTime && lastReminderRunDate !== today) {
         lastReminderRunDate = today;

@@ -128,7 +128,7 @@ const run = async () => {
   const blockedGet = await axios.get(`${BASE}/tasks/${blockedId}`, manager.auth);
   assert.equal(blockedGet.data.data.task.blockedBy.length, 1, "blockedBy populated on getTask");
   assert.equal(blockedGet.data.data.task.blockedBy[0].title, "Blocker task", "blockedBy populate includes title");
-  assert.equal(blockedGet.data.data.task.blockedBy[0].status, "backlog", "blockedBy populate includes status");
+  assert.equal(blockedGet.data.data.task.blockedBy[0].status, "todo", "blockedBy populate includes status");
 
   const listWithBlocked = await axios.get(`${BASE}/tasks?project=${projectId}`, manager.auth);
   const listed = listWithBlocked.data.data.tasks.find((t) => t._id === blockedId);
@@ -272,7 +272,7 @@ const run = async () => {
     (t) => t.title === "Blocked recurring task" && t._id !== blockedId
   );
   assert.ok(nextOccurrence, "next occurrence exists with the same title");
-  assert.equal(nextOccurrence.status, "backlog", "next occurrence starts in backlog");
+  assert.equal(nextOccurrence.status, "todo", "next occurrence starts in todo");
   assert.equal(nextOccurrence.assignees.length, 1, "next occurrence carries over assignees");
   assert.equal(nextOccurrence.blockedBy.length, 0, "next occurrence does not carry over blockedBy");
   assert.equal(nextOccurrence.startTime, "13:00", "next occurrence carries over startTime");

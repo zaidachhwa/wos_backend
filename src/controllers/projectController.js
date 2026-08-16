@@ -75,7 +75,7 @@ const assertInScope = async (user, manager, members) => {
 
 export const createProject = async (req, res) => {
   try {
-    const { name, description, manager, members, priority, startDate, deadline, status, type } = req.body;
+    const { name, description, manager, members, priority, startDate, deadline, status, type, weightage } = req.body;
     const scopeError = await assertInScope(req.user, manager, members);
     if (scopeError) {
       return res.status(400).json({ success: false, message: scopeError });
@@ -90,6 +90,7 @@ export const createProject = async (req, res) => {
       deadline: deadline || null,
       status,
       type,
+      weightage,
     });
     recordActivity({
       actor: req.user._id,
@@ -214,6 +215,7 @@ export const updateProject = async (req, res) => {
       "deadline",
       "status",
       "type",
+      "weightage",
     ];
     const prevStatus = project.status;
     for (const key of allowed) {

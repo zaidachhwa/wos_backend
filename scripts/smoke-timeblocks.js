@@ -193,7 +193,7 @@ const run = async () => {
   assert.ok(taskItem, "calendar includes the assigned task's deadline");
   assert.equal(taskItem.label, "Sprint 12", "task_deadline item carries the task's first label");
   assert.equal(taskItem.projectName, "Calendar smoke project", "task_deadline item carries the project's name");
-  assert.equal(taskItem.status, "backlog", "task_deadline item carries the task's status");
+  assert.equal(taskItem.status, "todo", "task_deadline item carries the task's status");
   assert.ok(taskItem.spanStart, "task_deadline item carries a spanStart");
 
   assert.ok(

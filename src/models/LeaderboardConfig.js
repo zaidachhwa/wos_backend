@@ -7,7 +7,6 @@ const leaderboardConfigSchema = new mongoose.Schema(
       low: { type: Number, required: true },
       medium: { type: Number, required: true },
       high: { type: Number, required: true },
-      critical: { type: Number, required: true },
     },
     penalties: {
       completedLate: { type: Number, required: true },

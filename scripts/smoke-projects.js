@@ -220,7 +220,7 @@ const run = async () => {
     manager.auth
   );
   assert.equal(taskCreated.status, 201, "manager creates a task assigned to two people");
-  assert.equal(taskCreated.data.data.task.status, "backlog", "new task starts in backlog");
+  assert.equal(taskCreated.data.data.task.status, "todo", "new task starts in todo");
   assert.equal(taskCreated.data.data.task.assignees.length, 2, "both assignees stored");
   const taskId = taskCreated.data.data.task._id;
 
@@ -249,7 +249,7 @@ const run = async () => {
   );
 
   const toInProgress = await axios.patch(`${BASE}/tasks/${taskId}`, { status: "in_progress" }, member.auth);
-  assert.equal(toInProgress.status, 200, "assignee moves task backlog -> in_progress");
+  assert.equal(toInProgress.status, 200, "assignee moves task todo -> in_progress");
   assert.equal(toInProgress.data.data.task.status, "in_progress");
 
   const memberReassignForbidden = await axios.patch(

@@ -2,12 +2,12 @@ import Notification from "../models/Notification.js";
 import FollowUp from "../models/FollowUp.js";
 import Task from "../models/Task.js";
 import { paginationParams, paginationMeta } from "../utils/pagination.js";
+import { istDayStr, istClock } from "../utils/istTime.js";
 
-// Server-local (process timezone) YYYY-MM-DD — matches the spec's "server-local"
-// wording; there's no per-user timezone concept in this app.
+// IST YYYY-MM-DD — there's no per-user timezone concept in this app, so
+// every "today" is the org's (IST), not the server process's own timezone.
 // Exported for dashboardController: same "today" convention for follow-up lookups.
-export const localDay = (d) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+export const localDay = (d) => istDayStr(d);
 
 // Create-if-absent reminder notifications, deduped per day so a poll loop
 // doesn't spam. Runs inline (awaited) — unlike record.js's fire-and-forget
@@ -15,7 +15,7 @@ export const localDay = (d) =>
 const injectReminders = async (user) => {
   const now = new Date();
   const day = localDay(now);
-  const hour = now.getHours();
+  const { hours: hour } = istClock(now);
 
   const followupTypes = [];
   if (hour < 12) followupTypes.push("morning");

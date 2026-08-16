@@ -1,5 +1,5 @@
 export const validateProjectCreate = (req, res, next) => {
-  const { name, manager, members } = req.body;
+  const { name, manager, members, weightage } = req.body;
   if (!name || !String(name).trim()) {
     return res.status(400).json({ success: false, message: "name is required" });
   }
@@ -8,6 +8,9 @@ export const validateProjectCreate = (req, res, next) => {
   }
   if (members !== undefined && !Array.isArray(members)) {
     return res.status(400).json({ success: false, message: "members must be an array" });
+  }
+  if (weightage !== undefined && (typeof weightage !== "number" || !Number.isFinite(weightage) || weightage < 0)) {
+    return res.status(400).json({ success: false, message: "weightage must be a non-negative number" });
   }
   next();
 };

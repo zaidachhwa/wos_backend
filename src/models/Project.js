@@ -9,6 +9,9 @@ const projectSchema = new mongoose.Schema(
     manager: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     members: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
     priority: { type: String, enum: PRIORITIES, default: "medium" },
+    // Added to every completed task's points for this project — see
+    // utils/points.js pointsForCompletedTask.
+    weightage: { type: Number, default: 0, min: 0 },
     startDate: { type: Date, default: null },
     deadline: { type: Date, default: null },
     status: { type: String, enum: PROJECT_STATUSES, default: "planning" },

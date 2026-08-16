@@ -69,7 +69,7 @@ const run = async () => {
   assert.equal(task.approvalStatus, "pending", "member-created task starts pending");
   assert.equal(task.assignees.length, 1, "member-created task is self-assigned only");
   assert.equal(String(task.assignees[0]), String(member.userId), "assignee-tampering in the body is ignored");
-  assert.equal(task.status, "backlog", "member-created task is forced to backlog regardless of body");
+  assert.equal(task.status, "todo", "member-created task is forced to todo regardless of body");
 
   // --- pending task is locked from normal edits -----------------------------
 
@@ -106,6 +106,7 @@ const run = async () => {
   assert.equal(approved.status, 200, "reportingManager approves the task");
   assert.equal(approved.data.data.task.approvalStatus, "approved");
   assert.equal(approved.data.data.task.assignees.length, 2, "approver can add assignees in the same request");
+  assert.equal(approved.data.data.task.status, "in_progress", "approval auto-starts the task instead of leaving it in todo");
 
   const doubleApprove = await axios.patch(
     `${BASE}/tasks/${task._id}/approve`,
@@ -184,6 +185,46 @@ const run = async () => {
     403,
     "a subadmin managing a different department cannot decide"
   );
+
+  // --- sublead can decide for a creator within their managed teams ---------
+
+  const proposed6 = await axios.post(
+    `${BASE}/tasks`,
+    { project: projectId, title: "Proposed, sublead decides" },
+    member.auth
+  );
+  const task6 = proposed6.data.data.task._id;
+
+  const subleadOnTeam = await createUser(adminAuth, "sublead", null, { managedTeams: [managerTeamId] });
+  const subleadApproves = await axios.patch(`${BASE}/tasks/${task6}/approve`, {}, subleadOnTeam.auth);
+  assert.equal(
+    subleadApproves.status,
+    200,
+    "a sublead whose managed teams include the creator can approve, even without being reportingManager"
+  );
+  assert.equal(subleadApproves.data.data.task.status, "in_progress", "sublead approval also auto-starts the task");
+
+  const proposed7 = await axios.post(
+    `${BASE}/tasks`,
+    { project: projectId, title: "Proposed, outsider sublead forbidden" },
+    member.auth
+  );
+  const task7 = proposed7.data.data.task._id;
+
+  const otherTeam = await axios.post(
+    `${BASE}/teams`,
+    { name: `Smoke Approval Other Team ${Date.now()}`, department: deptId },
+    adminAuth
+  );
+  const subleadOffTeam = await createUser(adminAuth, "sublead", null, {
+    managedTeams: [otherTeam.data.data.team._id],
+  });
+  const outsiderSubleadReject = await axios.patch(
+    `${BASE}/tasks/${task7}/reject`,
+    { approvalComment: "not my team" },
+    { ...subleadOffTeam.auth, validateStatus: () => true }
+  );
+  assert.equal(outsiderSubleadReject.status, 403, "a sublead managing a different team cannot decide");
 
   console.log("smoke-approval: all checks passed");
 };

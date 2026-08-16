@@ -1,6 +1,6 @@
-// Only these statuses count toward "total working time" — backlog/todo are
-// idle waiting states, blocked is external, client_review is the client's
-// clock, not ours. See 2026-07-30-task-accountability-design.md.
+// Only these statuses count toward "total working time" — todo is an idle
+// waiting state, blocked is external, client_review is the client's clock,
+// not ours. See 2026-07-30-task-accountability-design.md.
 const WORKING_STATUSES = ["in_progress", "review", "testing"];
 
 // Reconstructs time-in-status entirely from the status-change Activity log

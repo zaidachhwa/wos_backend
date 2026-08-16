@@ -16,10 +16,10 @@ export const wasCompletedLate = (task, completedAt) => {
   return completedAt > cutoff;
 };
 
-export const pointsForCompletedTask = (task, completedAt) => {
+export const pointsForCompletedTask = (task, completedAt, projectWeightage = 0) => {
   const ceiling = taskPointCeiling(task.priority);
   const auto = Math.round(ceiling * AUTO_AWARD_RATIO);
   const bonus = Math.min(task.bonusPoints || 0, maxBonusFor(task.priority));
   const penalty = wasCompletedLate(task, completedAt) ? getPenalties().completedLate : 0;
-  return Math.max(0, auto + bonus - penalty);
+  return Math.max(0, auto + bonus - penalty + (projectWeightage || 0));
 };
