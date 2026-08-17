@@ -38,6 +38,7 @@ const FULL_FIELDS = [
   "recurrence",
   "type",
   "reference",
+  "isClientChange",
 ];
 const ASSIGNEE_FIELDS = ["status", "actualHours", "subtasks"];
 
@@ -60,6 +61,7 @@ export const createTask = async (req, res) => {
       recurrence,
       type,
       reference,
+      isClientChange,
     } = req.body;
 
     const timeSlotError = validateTimeSlot({ deadline, startTime, endTime });
@@ -106,6 +108,7 @@ export const createTask = async (req, res) => {
       recurrence: recurrence || null,
       type: type || "task",
       reference: reference || "",
+      isClientChange: Boolean(isClientChange),
       createdBy: req.user._id,
       approvalStatus: isMember ? "pending" : "not_required",
     });

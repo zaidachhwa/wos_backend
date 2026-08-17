@@ -64,6 +64,9 @@ const taskSchema = new mongoose.Schema(
     // kanban, points) — see 2026-07-30-task-accountability-design.md.
     type: { type: String, enum: ["task", "bug"], default: "task" },
     reference: { type: String, default: "" },
+    // Flagged when this task exists because a client asked for a change —
+    // feeds the appraisal defect-rate formula alongside `type: "bug"`.
+    isClientChange: { type: Boolean, default: false },
     // Guards the one-time overdue-penalty sweep (services/overdueSweep.js)
     // from double-deducting the same task.
     overduePenaltyApplied: { type: Boolean, default: false },
