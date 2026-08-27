@@ -19,7 +19,7 @@ const SUBLEAD_PLUS = ["admin", "manager", "subadmin", "sublead"];
 // including subadmin would grant unscoped cross-department comment moderation.
 const COMMENT_MODERATOR_ROLES = ["admin", "manager", "sublead"];
 
-const FULL_FIELDS = [
+const MANAGE_FIELDS = [
   "title",
   "description",
   "modules",
@@ -36,11 +36,33 @@ const FULL_FIELDS = [
   "subtasks",
   "blockedBy",
   "recurrence",
-  "type",
   "reference",
-  "isClientChange",
 ];
 const ASSIGNEE_FIELDS = ["status", "actualHours", "subtasks"];
+// Bug/client-change flagging is gated separately from general task
+// management (see canFlagDefects below) — a sublead who can freely reassign
+// or reprioritize a task still can't flag it as defective if it belongs to
+// a manager/sublead/subadmin; that's QA/admin-only.
+const FLAG_FIELDS = ["type", "isClientChange"];
+
+// A task assigned to one of these roles gets the stricter flag gate — only
+// qa/admin flag manager/sublead/subadmin's own work; nobody at their level
+// or below does. Assigned-to-a-member tasks use the looser MEMBER_FLAGGERS.
+const LEAD_ASSIGNEE_ROLES = ["manager", "sublead", "subadmin"];
+const MEMBER_FLAGGERS = ["sublead", "manager", "subadmin"];
+
+// QA flags anyone, unscoped by design — reviewing a manager/sublead/
+// subadmin's own work is exactly the case nobody inside their reporting
+// chain can do, so QA sits outside canViewProject's department/team scope
+// entirely. Everyone else needs both the right role AND project visibility.
+const canFlagDefects = async (actor, task, project) => {
+  if (actor.role === "admin" || actor.role === "qa") return true;
+  if (!(await canViewProject(actor, project))) return false;
+  const assignees = await User.find({ _id: { $in: task.assignees } }).select("role");
+  const hasLeadAssignee = assignees.some((u) => LEAD_ASSIGNEE_ROLES.includes(u.role));
+  if (hasLeadAssignee) return false;
+  return MEMBER_FLAGGERS.includes(actor.role);
+};
 
 export const createTask = async (req, res) => {
   try {
@@ -392,11 +414,15 @@ export const updateTask = async (req, res) => {
 
     const canManageFully = SUBLEAD_PLUS.includes(req.user.role) && (await canViewProject(req.user, project));
     const isAssignee = task.assignees.some((a) => idOf(a) === String(req.user._id));
-    if (!canManageFully && !isAssignee) {
+    const canFlag = await canFlagDefects(req.user, task, project);
+    if (!canManageFully && !isAssignee && !canFlag) {
       return res.status(403).json({ success: false, message: "Forbidden" });
     }
 
-    const allowedFields = canManageFully ? FULL_FIELDS : ASSIGNEE_FIELDS;
+    const allowedFields = [
+      ...(canManageFully ? MANAGE_FIELDS : isAssignee ? ASSIGNEE_FIELDS : []),
+      ...(canFlag ? FLAG_FIELDS : []),
+    ];
     const disallowed = Object.keys(req.body).filter((key) => !allowedFields.includes(key));
     if (disallowed.length) {
       return res

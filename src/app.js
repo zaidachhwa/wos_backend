@@ -21,6 +21,7 @@ import searchRoutes from "./routes/searchRoutes.js";
 import leaderboardRoutes from "./routes/leaderboardRoutes.js";
 import departmentViolationRoutes from "./routes/departmentViolationRoutes.js";
 import appraisalRoutes from "./routes/appraisalRoutes.js";
+import attendanceRoutes from "./routes/attendanceRoutes.js";
 
 const app = express();
 
@@ -46,6 +47,7 @@ app.use("/api/reports", reportRoutes);
 app.use("/api/search", searchRoutes);
 app.use("/api/leaderboard", leaderboardRoutes);
 app.use("/api/appraisal", appraisalRoutes);
+app.use("/api/attendance", attendanceRoutes);
 app.use("/api/department-violations", departmentViolationRoutes);
 
 app.get("/api/health", (req, res) => {

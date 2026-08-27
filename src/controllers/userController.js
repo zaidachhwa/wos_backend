@@ -46,6 +46,7 @@ export const createUser = async (req, res) => {
       managedDepartment,
       managedTeam,
       managedTeams,
+      joinedAt,
     } = req.body;
 
     const allowedRoles = MANAGEABLE_ROLES[req.user.role];
@@ -98,6 +99,7 @@ export const createUser = async (req, res) => {
       managedDepartment: role === "subadmin" ? managedDepartment : null,
       managedTeam: role === "manager" ? managedTeam : null,
       managedTeams: role === "sublead" ? managedTeams || [] : [],
+      joinedAt: joinedAt || null,
     });
     const safeUser = await User.findById(user._id);
     return res.status(201).json({ success: true, message: "User created", data: { user: safeUser } });
@@ -188,6 +190,7 @@ const ALLOWED_UPDATE_FIELDS = {
     "managedDepartment",
     "managedTeam",
     "managedTeams",
+    "joinedAt",
   ],
   subadmin: ["name", "designation", "role", "team", "isActive", "managedTeam"],
   manager: ["name", "designation", "role", "team", "isActive"],

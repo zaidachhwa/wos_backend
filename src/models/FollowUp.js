@@ -24,6 +24,15 @@ const followUpSchema = new mongoose.Schema(
     managerComment: { type: String, default: "" },
     reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     submittedAt: { type: Date, default: null },
+    // Where the submit happened — set only on a real submit (never on a
+    // draft save), and only once the office geofence is configured. Kept
+    // for audit (how far from the office someone was) even though the
+    // submit itself is already rejected if it's outside the radius.
+    submitLocation: {
+      lat: { type: Number, default: null },
+      lng: { type: Number, default: null },
+      distanceMeters: { type: Number, default: null },
+    },
   },
   { timestamps: true }
 );
