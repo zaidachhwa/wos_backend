@@ -2,6 +2,7 @@ import Activity from "../models/Activity.js";
 import Attendance from "../models/Attendance.js";
 import Department from "../models/Department.js";
 import Task from "../models/Task.js";
+import Team from "../models/Team.js";
 import User from "../models/User.js";
 import { monthDayBounds } from "../utils/monthDayBounds.js";
 import {
@@ -59,8 +60,15 @@ const individualCsv = (target, data) => {
 export const getMyAppraisal = async (req, res) => {
   try {
     const joinedAt = req.user.joinedAt || req.user.createdAt;
-    const data = await computeUserAppraisal(req.user._id, req.query.month, joinedAt);
-    return res.json({ success: true, message: "Appraisal fetched", data });
+    const [data, team] = await Promise.all([
+      computeUserAppraisal(req.user._id, req.query.month, joinedAt),
+      req.user.team ? Team.findById(req.user.team, "performanceThresholds") : null,
+    ]);
+    return res.json({
+      success: true,
+      message: "Appraisal fetched",
+      data: { ...data, band: bandFor(data.score, team?.performanceThresholds) },
+    });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ success: false, message: "Something went wrong" });
