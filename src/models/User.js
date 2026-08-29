@@ -27,6 +27,17 @@ const userSchema = new mongoose.Schema(
     managedTeams: [{ type: mongoose.Schema.Types.ObjectId, ref: "Team" }],
     team: { type: mongoose.Schema.Types.ObjectId, ref: "Team", default: null },
     reportingManager: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    // Actual joining date, distinct from createdAt (when the account was
+    // created — often later than when someone actually joined, e.g. a
+    // backfilled account). Drives the appraisal tenure band (see
+    // appraisalController.js) — defaults to createdAt via the pre-save hook
+    // below so existing/unset users still get a sane tenure instead of null.
+    joinedAt: { type: Date, default: null },
+    // Per-employee morning follow-up deadline ("HH:mm", IST) — overrides the
+    // org-wide default (see utils/attendanceConfig.js) for people whose
+    // shift genuinely starts at a different time. null means "use the org
+    // default". Set only by hr/admin, via PATCH /api/attendance/deadline/:userId.
+    morningDeadline: { type: String, default: null },
     isActive: { type: Boolean, default: true },
     // "HH:MM" 24h IST wall-clock, same plain-string convention as FollowUp.date.
     // Drives the monthly late-mark/leave derivation in appraisalController.js.
@@ -56,5 +67,9 @@ const userSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+userSchema.pre("save", function setDefaultJoinedAt() {
+  if (this.isNew && !this.joinedAt) this.joinedAt = new Date();
+});
 
 export default mongoose.model("User", userSchema);

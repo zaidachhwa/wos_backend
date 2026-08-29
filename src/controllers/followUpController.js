@@ -7,10 +7,10 @@ import { localDay } from "./notificationController.js";
 import { aiConfigured, generateText } from "../services/gemini.js";
 import { sendEveningFollowUpReminders } from "../services/followUpReminders.js";
 import { getManagedUserIds } from "../utils/departmentScope.js";
-import { getOfficeLocation } from "../utils/pointsConfig.js";
-import { haversineDistanceMeters } from "../utils/geo.js";
+import { getOfficeLocation } from "../utils/attendanceConfig.js";
+import { distanceMeters } from "../utils/geo.js";
 
-const TEAM_SCOPE_ROLES = ["admin", "manager", "subadmin", "sublead"];
+const TEAM_SCOPE_ROLES = ["admin", "manager", "subadmin", "sublead", "hr"];
 
 // ponytail: plain Date arithmetic, no date library in this project. `dateStr`
 // is a "YYYY-MM-DD" org (IST) calendar day — the explicit "+05:30" offset
@@ -24,22 +24,6 @@ export const upsertFollowUp = async (req, res) => {
   try {
     const { date, type, data, submit, lat, lng } = req.body;
 
-    if (submit === true) {
-      const office = getOfficeLocation();
-      const configured = office.lat !== null && office.lng !== null && office.radiusMeters !== null;
-      if (configured) {
-        if (typeof lat !== "number" || typeof lng !== "number") {
-          return res.status(400).json({ success: false, message: "Location is required to submit" });
-        }
-        const distance = haversineDistanceMeters(lat, lng, office.lat, office.lng);
-        if (distance > office.radiusMeters) {
-          return res
-            .status(400)
-            .json({ success: false, message: `You must be within ${office.radiusMeters}m of the office to submit` });
-        }
-      }
-    }
-
     let followUp = await FollowUp.findOne({ user: req.user._id, date, type });
     if (followUp && followUp.status === "reviewed") {
       return res.status(409).json({ success: false, message: "Follow-up already reviewed and locked" });
@@ -49,7 +33,27 @@ export const upsertFollowUp = async (req, res) => {
     }
 
     followUp.set(type, data);
+
+    // Geofence only bites on a real submit — draft saves (and the check
+    // itself) are skipped entirely until HR configures an office location.
     if (submit === true) {
+      const office = getOfficeLocation();
+      if (office) {
+        if (typeof lat !== "number" || typeof lng !== "number") {
+          return res.status(400).json({
+            success: false,
+            message: "Location is required to submit — enable location access in your browser and try again",
+          });
+        }
+        const distance = distanceMeters(lat, lng, office.lat, office.lng);
+        if (distance > office.radiusMeters) {
+          return res.status(403).json({
+            success: false,
+            message: `You must be at the office to submit — you're ${Math.round(distance)}m away (limit ${office.radiusMeters}m)`,
+          });
+        }
+        followUp.submitLocation = { lat, lng, distanceMeters: Math.round(distance) };
+      }
       followUp.status = "submitted";
       followUp.submittedAt = new Date();
     }
@@ -96,7 +100,9 @@ export const listFollowUps = async (req, res) => {
           .json({ success: false, message: "date and type are required for scope=team" });
       }
       let reportFilter;
-      if (req.user.role === "admin") {
+      if (req.user.role === "admin" || req.user.role === "hr") {
+        // hr gets the same org-wide visibility as admin here — attendance
+        // tracking needs to see everyone's follow-ups, not just direct reports.
         reportFilter = { isActive: true };
       } else if (req.user.role === "subadmin") {
         const managedIds = await getManagedUserIds(req.user);

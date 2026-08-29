@@ -4,12 +4,13 @@ import mongoose from "mongoose";
 
 import Memo from "../src/models/Memo.js";
 // Side-effect imports: registers these models in this standalone script's
-// own mongoose connection so computeMonthlyAppraisal's .populate("team", ...)
-// (reached via the direct runMonthlyMemoSweep call below) can resolve them —
-// the running Express server process has its own separate registration.
+// own mongoose connection so computeUserAppraisal's .populate(...) (reached
+// via the direct runMonthlyMemoSweep call below) can resolve them — the
+// running Express server process has its own separate registration.
 import "../src/models/Team.js";
 import "../src/models/User.js";
 import "../src/models/FollowUp.js";
+import "../src/models/Attendance.js";
 
 const BASE = process.env.API_URL || "http://localhost:5000/api";
 const EMAIL = process.env.SEED_ADMIN_EMAIL;
@@ -35,14 +36,21 @@ const createUser = async (adminAuth, role, extra = {}) => {
 
 const currentMonth = () => new Date().toISOString().slice(0, 7);
 
-const completeTask = async (manager, member, projectId) => {
+const completeTask = async (manager, member, projectId, title) => {
   const task = await axios.post(
     `${BASE}/tasks`,
-    { project: projectId, title: `Smoke task ${Math.random().toString(36).slice(2, 6)}`, assignees: [member.userId], priority: "low" },
+    { project: projectId, title, assignees: [member.userId], priority: "low" },
     manager.auth
   );
   await axios.patch(`${BASE}/tasks/${task.data.data.task._id}`, { status: "completed" }, member.auth);
+  return task.data.data.task._id;
 };
+
+// Shams's tenure-band appraisal (services/monthlyAppraisal.js) needs at
+// least minTasksNew (default 3) completed tasks before a fresh joiner's
+// score shows at all (see utils/appraisalConfig.js) — every month this
+// script wants scored needs at least that many completions.
+const MIN_TASKS_NEW = 3;
 
 const run = async () => {
   const adminAuth = await authFor(EMAIL, PASSWORD);
@@ -58,7 +66,7 @@ const run = async () => {
 
   // --- Task 1: thresholds default, and permission scoping ---
 
-  assert.deepEqual(teamA.data.data.team.performanceThresholds, { red: 50, yellow: 80 }, "default thresholds match appraisal's prior hardcoded cutoffs");
+  assert.deepEqual(teamA.data.data.team.performanceThresholds, { red: 50, yellow: 80 }, "default thresholds");
 
   const mgrSetsOwn = await axios.patch(`${BASE}/teams/${teamAId}/thresholds`, { red: 101, yellow: 200 }, manager.auth);
   assert.equal(mgrSetsOwn.status, 200, "manager sets thresholds for their own team");
@@ -81,14 +89,16 @@ const run = async () => {
   );
   assert.equal(badThresholds.status, 400, "red must be less than yellow");
 
-  // teamA's thresholds are now {red:101, yellow:200} — any completed-task
-  // month (score <= 100) is guaranteed Red, no need to inflate penalty
-  // weights to force it.
+  // teamA's thresholds are now {red:101, yellow:200} — any month with a
+  // non-null score (0-100) is guaranteed Red, no need to inflate defect
+  // counts to force it.
 
   const member = await createUser(adminAuth, "member", { team: teamAId, reportingManager: manager.userId });
   const project = await axios.post(`${BASE}/projects`, { name: `Smoke Memo ${Date.now()}`, manager: manager.userId, members: [member.userId] }, manager.auth);
   const projectId = project.data.data.project._id;
-  await completeTask(manager, member, projectId);
+  for (let i = 0; i < MIN_TASKS_NEW; i += 1) {
+    await completeTask(manager, member, projectId, `Smoke memo task ${i}`);
+  }
 
   // --- Task 2: manual sweep issues memo #1 (review_delay), pushes nextReviewDate ---
 
@@ -111,7 +121,7 @@ const run = async () => {
 
   // --- Task 3: re-running the sweep for the same month is a no-op (idempotent) ---
 
-  const sweep2 = await axios.post(`${BASE}/appraisal/run-memo-sweep`, { month }, adminAuth);
+  await axios.post(`${BASE}/appraisal/run-memo-sweep`, { month }, adminAuth);
   const memosAfter2 = await axios.get(`${BASE}/users/${member.userId}/memos`, adminAuth);
   assert.equal(memosAfter2.data.data.memos.filter((m) => m.month === month).length, 1, "re-running the sweep doesn't double-issue a memo for the same month");
 
@@ -138,35 +148,33 @@ const run = async () => {
     consequence: "review_delay",
   });
 
-  // Since `month` is already consumed by memo #1, simulate the 4th red month
-  // as a distinct "YYYY-MM" the sweep hasn't touched — seed one more Memo
-  // directly for consistency of the running count, then call the real sweep
-  // for a genuinely fresh month string so its own create-path (not a seed)
-  // exercises the >=4 -> termination_flag branch end-to-end.
+  // Simulate the 4th red month as a distinct "YYYY-MM" the sweep hasn't
+  // touched, since `month` is already consumed by memo #1. No real Activity
+  // exists for this fake month, so directly back-date MIN_TASKS_NEW real
+  // completions' Activity records into that window (mirrors
+  // smoke-department-scope.js's precedent for reaching states the live HTTP
+  // flow can't produce within one test run).
   const fakeMonth4 = "2026-03";
-  // No completed-task Activity exists for 2026-03, so computeMonthlyAppraisal
-  // would score this member `null` (0 tasks) for that window and skip them —
-  // exercise the >=4 branch directly against the service instead of via HTTP,
-  // mirroring smoke-department-scope.js's precedent for reaching states the
-  // live HTTP flow can't produce within one test run.
   const { runMonthlyMemoSweep } = await import("../src/services/memoSweep.js");
   const Task = (await import("../src/models/Task.js")).default;
   const Activity = (await import("../src/models/Activity.js")).default;
-  const task4 = await axios.post(
-    `${BASE}/tasks`,
-    { project: projectId, title: "Smoke memo seq4 task", assignees: [member.userId], priority: "low" },
-    manager.auth
-  );
-  await Task.findByIdAndUpdate(task4.data.data.task._id, { status: "completed" });
-  await Activity.create({
-    actor: member.userId,
-    action: "status_changed",
-    entityType: "task",
-    entityId: task4.data.data.task._id,
-    project: projectId,
-    meta: { statusTo: "completed" },
-    createdAt: new Date(`${fakeMonth4}-15T00:00:00.000Z`),
-  });
+  for (let i = 0; i < MIN_TASKS_NEW; i += 1) {
+    const task4 = await axios.post(
+      `${BASE}/tasks`,
+      { project: projectId, title: `Smoke memo seq4 task ${i}`, assignees: [member.userId], priority: "low" },
+      manager.auth
+    );
+    await Task.findByIdAndUpdate(task4.data.data.task._id, { status: "completed" });
+    await Activity.create({
+      actor: member.userId,
+      action: "status_changed",
+      entityType: "task",
+      entityId: task4.data.data.task._id,
+      project: projectId,
+      meta: { statusTo: "completed" },
+      createdAt: new Date(`${fakeMonth4}-15T00:00:00.000Z`),
+    });
+  }
 
   const sweep4 = await runMonthlyMemoSweep(fakeMonth4);
   assert.ok(sweep4.memosIssued >= 1, "4th-month sweep issues the escalation memo");

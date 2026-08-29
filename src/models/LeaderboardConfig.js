@@ -13,20 +13,6 @@ const leaderboardConfigSchema = new mongoose.Schema(
       overdue: { type: Number, required: true },
       bug: { type: Number, required: true },
     },
-    // Weights for the monthly performance score (appraisalController.js).
-    monthlyPenalties: {
-      leave: { type: Number, default: 1 },
-      lateMark: { type: Number, default: 1 },
-      clientChange: { type: Number, default: 1 },
-      bug: { type: Number, default: 1 },
-    },
-    // null fields = not configured yet; follow-up submission geofencing is
-    // skipped entirely until an admin sets this.
-    officeLocation: {
-      lat: { type: Number, default: null },
-      lng: { type: Number, default: null },
-      radiusMeters: { type: Number, default: null },
-    },
   },
   { timestamps: true }
 );

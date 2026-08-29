@@ -1,6 +1,7 @@
 import User from "../models/User.js";
 import Memo from "../models/Memo.js";
-import { monthBounds, computeMonthlyAppraisal } from "./monthlyAppraisal.js";
+import { computeUserAppraisal } from "./monthlyAppraisal.js";
+import { bandFor } from "../utils/performanceBand.js";
 import { emailConfigured, sendEmail } from "./resend.js";
 import { notify } from "../utils/record.js";
 import { toIST } from "../utils/istTime.js";
@@ -38,39 +39,45 @@ const memoEmailHtml = ({ user, month, score, sequenceNumber, consequence }) => `
 `;
 
 // Evaluates the just-completed IST month (or `monthOverride`, "YYYY-MM", for
-// the manual-trigger/testing path) for every active non-admin user, and
-// issues a memo for anyone whose score landed in their team's Red band.
+// the manual-trigger/testing path) for every active, tracked-role user
+// against Shams's tenure-band score (computeUserAppraisal) and this team's
+// Red/Yellow/Green thresholds, issuing a memo for anyone who lands in Red.
 // Safe to re-run: Memo's unique {user, month} index turns a repeat pass into
 // a no-op per user (see the 11000 catch below).
 export const runMonthlyMemoSweep = async (monthOverride) => {
   const month = monthOverride || previousIstMonthStr();
-  const { start, end } = monthBounds(month);
-  const { rows } = await computeMonthlyAppraisal({
-    start,
-    end,
-    rosterFilter: { isActive: true, role: { $ne: "admin" } },
-  });
+
+  // Same roster exclusion as getAppraisal (admin/hr don't do task work
+  // themselves, so both are excluded from scoring) — the memo sweep should
+  // only ever flag someone who'd actually show up in the appraisal roster.
+  const roster = await User.find({ isActive: true, role: { $nin: ["admin", "hr"] } })
+    .select("name email reportingManager joinedAt createdAt team")
+    .populate("team", "name performanceThresholds");
 
   let processed = 0;
   let memosIssued = 0;
   let emailsAttempted = 0;
 
-  for (const row of rows) {
-    if (row.band !== "red" || !row.user.team) continue;
+  for (const user of roster) {
+    if (!user.team) continue; // no team -> no thresholds to evaluate against
+
+    const { score } = await computeUserAppraisal(user._id, month, user.joinedAt || user.createdAt);
+    const band = bandFor(score, user.team.performanceThresholds);
+    if (band !== "red") continue;
     processed += 1;
 
-    const existingCount = await Memo.countDocuments({ user: row.user._id, voided: false });
+    const existingCount = await Memo.countDocuments({ user: user._id, voided: false });
     const sequenceNumber = existingCount + 1;
     const consequence = sequenceNumber <= 3 ? "review_delay" : "termination_flag";
 
     let memo;
     try {
       memo = await Memo.create({
-        user: row.user._id,
-        team: row.user.team._id,
+        user: user._id,
+        team: user.team._id,
         month,
-        score: row.score,
-        thresholds: row.user.team.performanceThresholds,
+        score,
+        thresholds: user.team.performanceThresholds,
         sequenceNumber,
         consequence,
       });
@@ -81,31 +88,31 @@ export const runMonthlyMemoSweep = async (monthOverride) => {
     }
     memosIssued += 1;
 
-    const user = await User.findById(row.user._id);
+    const freshUser = await User.findById(user._id);
     if (consequence === "review_delay") {
-      const base = user.nextReviewDate && user.nextReviewDate > new Date() ? user.nextReviewDate : new Date();
-      user.nextReviewDate = new Date(base.getTime() + REVIEW_DELAY_MS);
-    } else if (!user.terminationPending) {
-      user.terminationPending = true;
+      const base = freshUser.nextReviewDate && freshUser.nextReviewDate > new Date() ? freshUser.nextReviewDate : new Date();
+      freshUser.nextReviewDate = new Date(base.getTime() + REVIEW_DELAY_MS);
+    } else if (!freshUser.terminationPending) {
+      freshUser.terminationPending = true;
       const admins = await User.find({ role: "admin", isActive: true });
       for (const admin of admins) {
         notify({
           user: admin._id,
           type: "performance_memo",
-          title: `${user.name} flagged for termination review`,
-          body: `${user.name} has received their 4th performance memo (${month}).`,
+          title: `${freshUser.name} flagged for termination review`,
+          body: `${freshUser.name} has received their 4th performance memo (${month}).`,
           link: "/team",
         });
       }
     }
-    await user.save();
+    await freshUser.save();
 
-    if (user.reportingManager) {
+    if (freshUser.reportingManager) {
       notify({
-        user: user.reportingManager,
+        user: freshUser.reportingManager,
         type: "performance_memo",
-        title: `${user.name} received a performance memo`,
-        body: `${month}: score ${row.score}, memo #${sequenceNumber}.`,
+        title: `${freshUser.name} received a performance memo`,
+        body: `${month}: score ${score}, memo #${sequenceNumber}.`,
         link: "/team",
       });
     }
@@ -115,14 +122,14 @@ export const runMonthlyMemoSweep = async (monthOverride) => {
       emailsAttempted += 1;
       try {
         await sendEmail({
-          to: user.email,
+          to: freshUser.email,
           subject: `Performance Memo — ${month}`,
-          html: memoEmailHtml({ user, month, score: row.score, sequenceNumber, consequence }),
+          html: memoEmailHtml({ user: freshUser, month, score, sequenceNumber, consequence }),
         });
         memo.emailSent = true;
         await memo.save();
       } catch (error) {
-        console.error(`memo email failed for ${user.email}:`, error.message);
+        console.error(`memo email failed for ${freshUser.email}:`, error.message);
       }
     }
   }

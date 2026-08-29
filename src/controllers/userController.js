@@ -50,6 +50,7 @@ export const createUser = async (req, res) => {
       managedTeams,
       shiftStart,
       shiftEnd,
+      joinedAt,
     } = req.body;
 
     if (!isValidShiftTime(shiftStart ?? null) || !isValidShiftTime(shiftEnd ?? null)) {
@@ -108,6 +109,7 @@ export const createUser = async (req, res) => {
       managedTeams: role === "sublead" ? managedTeams || [] : [],
       shiftStart: shiftStart || null,
       shiftEnd: shiftEnd || null,
+      joinedAt: joinedAt || null,
     });
     const safeUser = await User.findById(user._id);
     return res.status(201).json({ success: true, message: "User created", data: { user: safeUser } });
@@ -200,6 +202,7 @@ const ALLOWED_UPDATE_FIELDS = {
     "managedTeams",
     "shiftStart",
     "shiftEnd",
+    "joinedAt",
   ],
   subadmin: ["name", "designation", "role", "team", "isActive", "managedTeam", "shiftStart", "shiftEnd"],
   manager: ["name", "designation", "role", "team", "isActive", "shiftStart", "shiftEnd"],

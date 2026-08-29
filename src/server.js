@@ -4,9 +4,12 @@ import app from "./app.js";
 import { connectDB } from "./db/connect.js";
 import { initIO } from "./utils/io.js";
 import { loadPointsConfig } from "./utils/pointsConfig.js";
+import { loadAttendanceConfig } from "./utils/attendanceConfig.js";
+import { loadAppraisalConfig } from "./utils/appraisalConfig.js";
 import { applyOverduePenalties } from "./services/overdueSweep.js";
 import { sendEveningFollowUpReminders } from "./services/followUpReminders.js";
 import { runMonthlyMemoSweep } from "./services/memoSweep.js";
+import { runMorningAttendanceSweep } from "./services/attendanceSweep.js";
 import { localDay } from "./controllers/notificationController.js";
 import { istClock, istDayStr } from "./utils/istTime.js";
 
@@ -23,6 +26,8 @@ const start = async () => {
   try {
     await connectDB();
     await loadPointsConfig();
+    await loadAttendanceConfig();
+    await loadAppraisalConfig();
     applyOverduePenalties().catch((error) => console.error("overdue sweep failed:", error.message));
     setInterval(() => {
       applyOverduePenalties().catch((error) => console.error("overdue sweep failed:", error.message));
@@ -49,12 +54,33 @@ const start = async () => {
       }
     }, 60 * 1000);
 
+    // Morning-attendance sweep, once a day at/after 9pm IST — late enough
+    // that anyone submitting their morning follow-up today has already done
+    // so. Classifies the day's follow-up submissions into late/absent
+    // Attendance records (see services/attendanceSweep.js); never overwrites
+    // an existing entry for that user/date, so — same as the reminder sweep
+    // above — a same-day rerun after a restart is a safe no-op.
+    let lastAttendanceSweepDate = null;
+    setInterval(() => {
+      const now = new Date();
+      const { hours } = istClock(now);
+      const pastSweepTime = hours >= 21;
+      const today = localDay(now);
+      if (pastSweepTime && lastAttendanceSweepDate !== today) {
+        lastAttendanceSweepDate = today;
+        runMorningAttendanceSweep(now).catch((error) =>
+          console.error("morning attendance sweep failed:", error.message)
+        );
+      }
+    }, 60 * 1000);
+
     // Monthly performance memo sweep: fires once when the IST calendar rolls
     // into a new month, evaluating the month that just ended (the default
-    // month runMonthlyMemoSweep resolves). The in-memory guard only prevents
-    // re-firing within one process's uptime — true restart-safe idempotency
-    // comes from Memo's unique {user, month} index (a repeat pass is a no-op
-    // per user), same layering as the evening reminder job above.
+    // month runMonthlyMemoSweep resolves) against Shams's tenure-band score
+    // and this team's Red/Yellow/Green thresholds. The in-memory guard only
+    // prevents re-firing within one process's uptime — true restart-safe
+    // idempotency comes from Memo's unique {user, month} index (a repeat
+    // pass is a no-op per user), same layering as the reminder sweep above.
     let lastMemoSweepMonth = null;
     setInterval(() => {
       const currentMonth = istDayStr(new Date()).slice(0, 7);

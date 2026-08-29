@@ -3,16 +3,7 @@ import Task from "../models/Task.js";
 import User from "../models/User.js";
 import Project from "../models/Project.js";
 import { pointsForCompletedTask } from "../utils/points.js";
-import {
-  getPointsByPriority,
-  setPointsByPriority,
-  getPenalties,
-  setPenalties,
-  getMonthlyPenalties,
-  setMonthlyPenalties,
-  getOfficeLocation,
-  setOfficeLocation,
-} from "../utils/pointsConfig.js";
+import { getPointsByPriority, setPointsByPriority, getPenalties, setPenalties } from "../utils/pointsConfig.js";
 import { resolveDepartmentScope } from "../utils/departmentScope.js";
 import { applyOverduePenalties } from "../services/overdueSweep.js";
 import { istDayStr, istClock } from "../utils/istTime.js";
@@ -207,12 +198,7 @@ export const getPointsConfig = async (req, res) => {
   return res.json({
     success: true,
     message: "Points config fetched",
-    data: {
-      pointsByPriority: getPointsByPriority(),
-      penalties: getPenalties(),
-      monthlyPenalties: getMonthlyPenalties(),
-      officeLocation: getOfficeLocation(),
-    },
+    data: { pointsByPriority: getPointsByPriority(), penalties: getPenalties() },
   });
 };
 
@@ -222,24 +208,6 @@ const validateNonNegative = (values, requiredKeys, label) => {
     if (typeof val !== "number" || !Number.isFinite(val) || val < 0) {
       return `${label}.${key} must be a non-negative number`;
     }
-  }
-  return null;
-};
-
-// lat/lng/radiusMeters may each be null (not configured yet) — but if any
-// one is set, all three must be valid together, since a partial office
-// location can't be used for a distance check.
-const validateOfficeLocation = (loc) => {
-  const allNull = loc.lat === null && loc.lng === null && loc.radiusMeters === null;
-  if (allNull) return null;
-  if (typeof loc.lat !== "number" || loc.lat < -90 || loc.lat > 90) {
-    return "officeLocation.lat must be a number between -90 and 90";
-  }
-  if (typeof loc.lng !== "number" || loc.lng < -180 || loc.lng > 180) {
-    return "officeLocation.lng must be a number between -180 and 180";
-  }
-  if (typeof loc.radiusMeters !== "number" || !Number.isFinite(loc.radiusMeters) || loc.radiusMeters <= 0) {
-    return "officeLocation.radiusMeters must be a positive number";
   }
   return null;
 };
@@ -256,36 +224,21 @@ export const runOverdueSweep = async (req, res) => {
 
 export const updatePointsConfig = async (req, res) => {
   try {
-    const { pointsByPriority, penalties, monthlyPenalties, officeLocation } = req.body;
+    const { pointsByPriority, penalties } = req.body;
     const pointsError =
       pointsByPriority && validateNonNegative(pointsByPriority, ["low", "medium", "high"], "pointsByPriority");
     if (pointsError) return res.status(400).json({ success: false, message: pointsError });
     const penaltiesError =
       penalties && validateNonNegative(penalties, ["completedLate", "overdue", "bug"], "penalties");
     if (penaltiesError) return res.status(400).json({ success: false, message: penaltiesError });
-    const monthlyPenaltiesError =
-      monthlyPenalties &&
-      validateNonNegative(monthlyPenalties, ["leave", "lateMark", "clientChange", "bug"], "monthlyPenalties");
-    if (monthlyPenaltiesError) return res.status(400).json({ success: false, message: monthlyPenaltiesError });
-    const officeLocationError = officeLocation && validateOfficeLocation(officeLocation);
-    if (officeLocationError) return res.status(400).json({ success: false, message: officeLocationError });
 
     const updatedPoints = pointsByPriority ? await setPointsByPriority(pointsByPriority) : getPointsByPriority();
     const updatedPenalties = penalties ? await setPenalties(penalties) : getPenalties();
-    const updatedMonthlyPenalties = monthlyPenalties
-      ? await setMonthlyPenalties(monthlyPenalties)
-      : getMonthlyPenalties();
-    const updatedOfficeLocation = officeLocation ? await setOfficeLocation(officeLocation) : getOfficeLocation();
 
     return res.json({
       success: true,
       message: "Points config updated",
-      data: {
-        pointsByPriority: updatedPoints,
-        penalties: updatedPenalties,
-        monthlyPenalties: updatedMonthlyPenalties,
-        officeLocation: updatedOfficeLocation,
-      },
+      data: { pointsByPriority: updatedPoints, penalties: updatedPenalties },
     });
   } catch (error) {
     console.error(error);
