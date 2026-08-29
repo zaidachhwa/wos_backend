@@ -1,6 +1,6 @@
 import express from "express";
 import { getDashboardSummary, getProjectAnalytics, getUserAnalytics, getProjectDetails, getUserDetails } from "../controllers/analyticsController.js";
-import { requireAuth, requireRoles } from "../middleware/auth.middleware.js";
+import { requireAuth, requireRoles } from "../middleware/auth.js";
 
 const router = express.Router();
 
