@@ -20,5 +20,16 @@ export const validateFollowUpUpsert = (req, res, next) => {
   if (submit === true && lat !== undefined && (typeof lat !== "number" || typeof lng !== "number")) {
     return res.status(400).json({ success: false, message: "lat and lng must both be numbers" });
   }
+  
+  if (type === "evening" && submit === true) {
+    if (!data.projects || !Array.isArray(data.projects)) {
+      return res.status(400).json({ success: false, message: "Project allocations are required for evening follow-up" });
+    }
+    const totalMinutes = data.projects.reduce((acc, p) => acc + (Number(p.totalMinutes) || 0), 0);
+    if (totalMinutes < 480) {
+      return res.status(400).json({ success: false, message: "Your total recorded working time is less than 8 hours. Please complete at least 8 hours before submitting your Evening Follow-up." });
+    }
+  }
+  
   next();
 };

@@ -22,6 +22,7 @@ import leaderboardRoutes from "./routes/leaderboardRoutes.js";
 import departmentViolationRoutes from "./routes/departmentViolationRoutes.js";
 import appraisalRoutes from "./routes/appraisalRoutes.js";
 import attendanceRoutes from "./routes/attendanceRoutes.js";
+import analyticsRoutes from "./routes/analyticsRoutes.js";
 
 const app = express();
 
@@ -49,6 +50,7 @@ app.use("/api/leaderboard", leaderboardRoutes);
 app.use("/api/appraisal", appraisalRoutes);
 app.use("/api/attendance", attendanceRoutes);
 app.use("/api/department-violations", departmentViolationRoutes);
+app.use("/api/analytics", analyticsRoutes);
 
 app.get("/api/health", (req, res) => {
   res.json({ success: true, message: "OK" });

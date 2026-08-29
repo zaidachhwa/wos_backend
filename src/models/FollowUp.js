@@ -20,6 +20,12 @@ const followUpSchema = new mongoose.Schema(
       tomorrowPlan: { type: String, default: "" },
       actualHours: { type: Number, default: null },
       challenges: { type: String, default: "" },
+      projects: [{
+        project: { type: mongoose.Schema.Types.ObjectId, ref: "Project" },
+        hours: { type: Number, required: true },
+        minutes: { type: Number, required: true },
+        totalMinutes: { type: Number, required: true }
+      }]
     },
     managerComment: { type: String, default: "" },
     reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
