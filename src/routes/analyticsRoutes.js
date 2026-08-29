@@ -1,12 +1,12 @@
 import express from "express";
 import { getDashboardSummary, getProjectAnalytics, getUserAnalytics, getProjectDetails, getUserDetails } from "../controllers/analyticsController.js";
-import { requireAuth, requireRoles } from "../middleware/auth.js";
+import { authenticate, authorize } from "../middleware/auth.js";
 
 const router = express.Router();
 
-router.use(requireAuth);
+router.use(authenticate);
 // Only admin, manager, subadmin, and hr should access analytics
-router.use(requireRoles(["admin", "manager", "subadmin", "hr"]));
+router.use(authorize("admin", "manager", "subadmin", "hr"));
 
 router.get("/dashboard", getDashboardSummary);
 router.get("/projects", getProjectAnalytics);
