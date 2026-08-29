@@ -113,12 +113,28 @@ const run = async () => {
   const mgrEditsOwn = await axios.patch(`${BASE}/users/${mgrHireId}`, { designation: "Engineer" }, manager.auth);
   assert.equal(mgrEditsOwn.status, 200, "manager edits a member on their own team");
 
+  const mgrEditsOwnShift = await axios.patch(
+    `${BASE}/users/${mgrHireId}`,
+    { shiftStart: "09:30", shiftEnd: "18:30" },
+    manager.auth
+  );
+  assert.equal(mgrEditsOwnShift.status, 200, "manager sets shift timing for a member on their own team");
+  assert.equal(mgrEditsOwnShift.data.data.user.shiftStart, "09:30");
+  assert.equal(mgrEditsOwnShift.data.data.user.shiftEnd, "18:30");
+
   const mgrEditsOther = await axios.patch(
     `${BASE}/users/${memberA2.userId}`,
     { designation: "Nope" },
     { ...manager.auth, validateStatus: () => true }
   );
   assert.equal(mgrEditsOther.status, 404, "manager cannot edit a different team's member");
+
+  const mgrEditsOtherShift = await axios.patch(
+    `${BASE}/users/${memberA2.userId}`,
+    { shiftStart: "09:00", shiftEnd: "17:00" },
+    { ...manager.auth, validateStatus: () => true }
+  );
+  assert.equal(mgrEditsOtherShift.status, 404, "manager cannot set shift timing for a different team's member");
 
   const mgrDeactivatesOwn = await axios.delete(`${BASE}/users/${mgrHireId}`, manager.auth);
   assert.equal(mgrDeactivatesOwn.status, 200, "manager deactivates a member on their own team");

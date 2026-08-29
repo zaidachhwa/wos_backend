@@ -3,7 +3,7 @@ import { FOLLOWUP_TYPES } from "../constants/enums.constants.js";
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export const validateFollowUpUpsert = (req, res, next) => {
-  const { date, type, data } = req.body;
+  const { date, type, data, submit, lat, lng } = req.body;
   if (!date || !DATE_RE.test(date)) {
     return res.status(400).json({ success: false, message: "date must be in YYYY-MM-DD format" });
   }
@@ -14,6 +14,11 @@ export const validateFollowUpUpsert = (req, res, next) => {
   }
   if (!data || typeof data !== "object" || Array.isArray(data)) {
     return res.status(400).json({ success: false, message: "data is required" });
+  }
+  // lat/lng are optional (skipped entirely when no office location is
+  // configured — see upsertFollowUp) but must be real numbers when sent.
+  if (submit === true && lat !== undefined && (typeof lat !== "number" || typeof lng !== "number")) {
+    return res.status(400).json({ success: false, message: "lat and lng must both be numbers" });
   }
   next();
 };

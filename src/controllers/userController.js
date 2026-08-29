@@ -2,8 +2,10 @@ import bcrypt from "bcrypt";
 
 import User from "../models/User.js";
 import Team from "../models/Team.js";
+import Memo from "../models/Memo.js";
 import { paginationParams, paginationMeta } from "../utils/pagination.js";
 import { getManagedTeamIdsForActor, getManagedUserIds, resolveDepartmentScope } from "../utils/departmentScope.js";
+import { isValidShiftTime } from "../utils/shiftTime.js";
 
 // Which target roles each scoped (non-admin) actor may create/edit/deactivate.
 // Sub-admin manages its whole department, including the managers who run
@@ -46,7 +48,13 @@ export const createUser = async (req, res) => {
       managedDepartment,
       managedTeam,
       managedTeams,
+      shiftStart,
+      shiftEnd,
     } = req.body;
+
+    if (!isValidShiftTime(shiftStart ?? null) || !isValidShiftTime(shiftEnd ?? null)) {
+      return res.status(400).json({ success: false, message: "shiftStart/shiftEnd must be in HH:MM format" });
+    }
 
     const allowedRoles = MANAGEABLE_ROLES[req.user.role];
     let resolvedDepartment = department || null;
@@ -98,6 +106,8 @@ export const createUser = async (req, res) => {
       managedDepartment: role === "subadmin" ? managedDepartment : null,
       managedTeam: role === "manager" ? managedTeam : null,
       managedTeams: role === "sublead" ? managedTeams || [] : [],
+      shiftStart: shiftStart || null,
+      shiftEnd: shiftEnd || null,
     });
     const safeUser = await User.findById(user._id);
     return res.status(201).json({ success: true, message: "User created", data: { user: safeUser } });
@@ -159,7 +169,7 @@ export const getUserById = async (req, res) => {
       : { _id: req.params.id };
     const user = await User.findOne(filter)
       .select(
-        "name email role designation department team managedDepartment managedTeam managedTeams reportingManager isActive createdAt"
+        "name email role designation department team managedDepartment managedTeam managedTeams reportingManager isActive createdAt shiftStart shiftEnd nextReviewDate terminationPending"
       )
       .populate("department", "name")
       .populate("team", "name")
@@ -188,10 +198,12 @@ const ALLOWED_UPDATE_FIELDS = {
     "managedDepartment",
     "managedTeam",
     "managedTeams",
+    "shiftStart",
+    "shiftEnd",
   ],
-  subadmin: ["name", "designation", "role", "team", "isActive", "managedTeam"],
-  manager: ["name", "designation", "role", "team", "isActive"],
-  sublead: ["name", "designation", "role", "team", "isActive"],
+  subadmin: ["name", "designation", "role", "team", "isActive", "managedTeam", "shiftStart", "shiftEnd"],
+  manager: ["name", "designation", "role", "team", "isActive", "shiftStart", "shiftEnd"],
+  sublead: ["name", "designation", "role", "team", "isActive", "shiftStart", "shiftEnd"],
 };
 
 export const updateUser = async (req, res) => {
@@ -200,6 +212,11 @@ export const updateUser = async (req, res) => {
     const updates = {};
     for (const key of allowed) {
       if (key in req.body) updates[key] = req.body[key];
+    }
+    for (const field of ["shiftStart", "shiftEnd"]) {
+      if (field in updates && !isValidShiftTime(updates[field] ?? null)) {
+        return res.status(400).json({ success: false, message: `${field} must be in HH:MM format` });
+      }
     }
     const target = await User.findById(req.params.id);
     if (!target) {
@@ -325,6 +342,46 @@ export const deleteUser = async (req, res) => {
     target.isActive = false;
     await target.save();
     return res.json({ success: true, message: "User deleted", data: { user: target } });
+  } catch (error) {
+    return res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+const canManageTarget = async (actor, targetId) => {
+  if (actor.role === "admin") return true;
+  const allowedRoles = MANAGEABLE_ROLES[actor.role];
+  if (!allowedRoles) return false;
+  const managedUserIds = (await getManagedUserIds(actor)).map(String);
+  return managedUserIds.includes(String(targetId));
+};
+
+export const listUserMemos = async (req, res) => {
+  try {
+    if (!(await canManageTarget(req.user, req.params.id))) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+    const memos = await Memo.find({ user: req.params.id }).sort("-createdAt");
+    return res.json({ success: true, message: "Memos fetched", data: { memos } });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: "Something went wrong" });
+  }
+};
+
+// Admin-only (route-gated): voids every existing memo and clears the
+// termination flag — a clean strike-count reset. nextReviewDate is left
+// as-is; a reset undoes the count and the flag, not a delay that already
+// took effect.
+export const resetUserMemos = async (req, res) => {
+  try {
+    const target = await User.findById(req.params.id);
+    if (!target) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+    await Memo.updateMany({ user: target._id, voided: false }, { $set: { voided: true } });
+    target.terminationPending = false;
+    await target.save();
+    return res.json({ success: true, message: "Memos reset", data: { user: target } });
   } catch (error) {
     return res.status(400).json({ success: false, message: error.message });
   }

@@ -28,6 +28,17 @@ const userSchema = new mongoose.Schema(
     team: { type: mongoose.Schema.Types.ObjectId, ref: "Team", default: null },
     reportingManager: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     isActive: { type: Boolean, default: true },
+    // "HH:MM" 24h IST wall-clock, same plain-string convention as FollowUp.date.
+    // Drives the monthly late-mark/leave derivation in appraisalController.js.
+    shiftStart: { type: String, default: null },
+    shiftEnd: { type: String, default: null },
+    // Pushed back 21 days by each of a user's first 3 performance memos
+    // (see models/Memo.js) — a review/raise-eligibility date, independent of
+    // the monthly score itself.
+    nextReviewDate: { type: Date, default: null },
+    // Set true by a user's 4th performance memo. Flags the account for an
+    // admin to manually review/act on — never auto-deactivated.
+    terminationPending: { type: Boolean, default: false },
     // Set the first time a matching account signs in via Google. Unique +
     // sparse so multiple users can each have no googleId without violating
     // the unique index — no `default` here on purpose: a sparse index only

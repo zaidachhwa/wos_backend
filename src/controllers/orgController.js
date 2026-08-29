@@ -1,6 +1,6 @@
 import Department from "../models/Department.js";
 import Team from "../models/Team.js";
-import { resolveDepartmentScope } from "../utils/departmentScope.js";
+import { resolveDepartmentScope, getManagedTeamIdsForActor } from "../utils/departmentScope.js";
 
 // Departments
 
@@ -132,6 +132,38 @@ export const updateTeam = async (req, res) => {
       runValidators: true,
     });
     return res.json({ success: true, message: "Team updated", data: { team } });
+  } catch (error) {
+    return res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+// Deliberately separate from updateTeam (admin/subadmin, renames/moves a
+// team) — a manager gets exactly this one field for exactly their own team,
+// not general team editing.
+export const updateTeamThresholds = async (req, res) => {
+  try {
+    const { red, yellow } = req.body;
+    if (typeof red !== "number" || typeof yellow !== "number" || !Number.isFinite(red) || !Number.isFinite(yellow)) {
+      return res.status(400).json({ success: false, message: "red and yellow must be numbers" });
+    }
+    if (red >= yellow) {
+      return res.status(400).json({ success: false, message: "red must be less than yellow" });
+    }
+
+    const team = await Team.findById(req.params.id);
+    if (!team) {
+      return res.status(404).json({ success: false, message: "Team not found" });
+    }
+    if (req.user.role === "manager") {
+      const managedTeamIds = (await getManagedTeamIdsForActor(req.user)).map(String);
+      if (!managedTeamIds.includes(String(team._id))) {
+        return res.status(404).json({ success: false, message: "Team not found" });
+      }
+    }
+
+    team.performanceThresholds = { red, yellow };
+    await team.save();
+    return res.json({ success: true, message: "Thresholds updated", data: { team } });
   } catch (error) {
     return res.status(400).json({ success: false, message: error.message });
   }

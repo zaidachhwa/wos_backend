@@ -6,8 +6,9 @@ import { initIO } from "./utils/io.js";
 import { loadPointsConfig } from "./utils/pointsConfig.js";
 import { applyOverduePenalties } from "./services/overdueSweep.js";
 import { sendEveningFollowUpReminders } from "./services/followUpReminders.js";
+import { runMonthlyMemoSweep } from "./services/memoSweep.js";
 import { localDay } from "./controllers/notificationController.js";
-import { istClock } from "./utils/istTime.js";
+import { istClock, istDayStr } from "./utils/istTime.js";
 
 const PORT = process.env.PORT || 5000;
 
@@ -47,6 +48,21 @@ const start = async () => {
         );
       }
     }, 60 * 1000);
+
+    // Monthly performance memo sweep: fires once when the IST calendar rolls
+    // into a new month, evaluating the month that just ended (the default
+    // month runMonthlyMemoSweep resolves). The in-memory guard only prevents
+    // re-firing within one process's uptime — true restart-safe idempotency
+    // comes from Memo's unique {user, month} index (a repeat pass is a no-op
+    // per user), same layering as the evening reminder job above.
+    let lastMemoSweepMonth = null;
+    setInterval(() => {
+      const currentMonth = istDayStr(new Date()).slice(0, 7);
+      if (lastMemoSweepMonth !== currentMonth) {
+        lastMemoSweepMonth = currentMonth;
+        runMonthlyMemoSweep().catch((error) => console.error("memo sweep failed:", error.message));
+      }
+    }, 60 * 60 * 1000);
 
     const server = http.createServer(app);
     initIO(server);

@@ -2,12 +2,21 @@ import crypto from "node:crypto";
 import bcrypt from "bcrypt";
 
 import User from "../models/User.js";
+import { isValidShiftTime } from "../utils/shiftTime.js";
 
 export const updateProfile = async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
     if ("name" in req.body) user.name = req.body.name;
     if ("designation" in req.body) user.designation = req.body.designation;
+    for (const field of ["shiftStart", "shiftEnd"]) {
+      if (!(field in req.body)) continue;
+      const value = req.body[field];
+      if (!isValidShiftTime(value)) {
+        return res.status(400).json({ success: false, message: `${field} must be in HH:MM format` });
+      }
+      user[field] = value;
+    }
     await user.save();
     const safeUser = await User.findById(user._id).populate("department team managedDepartment managedTeam managedTeams");
     return res.json({ success: true, message: "Profile updated", data: { user: safeUser } });

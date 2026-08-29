@@ -22,3 +22,7 @@ export const istClock = (d = new Date()) => {
   const ist = toIST(d);
   return { hours: ist.getUTCHours(), minutes: ist.getUTCMinutes(), dayOfWeek: ist.getUTCDay() };
 };
+
+// Sunday is the only official holiday for attendance purposes — Saturday is
+// a regular working day.
+export const isWorkingDayIST = (d = new Date()) => istClock(d).dayOfWeek !== 0;

@@ -12,10 +12,19 @@ const run = async () => {
   const memberEmail = `member+${Date.now()}@wos.local`;
   const created = await axios.post(
     `${BASE}/users`,
-    { name: "Test Member", email: memberEmail, password: "memberpass123", role: "member" },
+    { name: "Test Member", email: memberEmail, password: "memberpass123", role: "member", shiftStart: "09:00", shiftEnd: "18:00" },
     auth
   );
   assert.equal(created.status, 201, "admin creates a user");
+  assert.equal(created.data.data.user.shiftStart, "09:00", "shift start set at creation");
+  assert.equal(created.data.data.user.shiftEnd, "18:00", "shift end set at creation");
+
+  const badShift = await axios.post(
+    `${BASE}/users`,
+    { name: "Bad Shift", email: `badshift+${Date.now()}@wos.local`, password: "memberpass123", role: "member", shiftStart: "9am" },
+    { ...auth, validateStatus: () => true }
+  );
+  assert.equal(badShift.status, 400, "a malformed shift time is rejected at creation");
 
   const dup = await axios.post(
     `${BASE}/users`,
@@ -44,6 +53,18 @@ const run = async () => {
   assert.equal(forbidden.status, 403, "member cannot list users");
 
   const memberId = created.data.data.user._id;
+
+  const updatedShift = await axios.patch(`${BASE}/users/${memberId}`, { shiftStart: "10:00", shiftEnd: "19:00" }, auth);
+  assert.equal(updatedShift.data.data.user.shiftStart, "10:00", "admin can edit another user's shift start");
+  assert.equal(updatedShift.data.data.user.shiftEnd, "19:00", "admin can edit another user's shift end");
+
+  const badShiftUpdate = await axios.patch(
+    `${BASE}/users/${memberId}`,
+    { shiftStart: "25:00" },
+    { ...auth, validateStatus: () => true }
+  );
+  assert.equal(badShiftUpdate.status, 400, "a malformed shift time is rejected on update");
+
   await axios.patch(`${BASE}/users/${memberId}`, { isActive: false }, auth);
   const inactiveLogin = await axios.post(
     `${BASE}/auth/login`,

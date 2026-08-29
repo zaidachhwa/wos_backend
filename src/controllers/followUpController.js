@@ -7,6 +7,8 @@ import { localDay } from "./notificationController.js";
 import { aiConfigured, generateText } from "../services/gemini.js";
 import { sendEveningFollowUpReminders } from "../services/followUpReminders.js";
 import { getManagedUserIds } from "../utils/departmentScope.js";
+import { getOfficeLocation } from "../utils/pointsConfig.js";
+import { haversineDistanceMeters } from "../utils/geo.js";
 
 const TEAM_SCOPE_ROLES = ["admin", "manager", "subadmin", "sublead"];
 
@@ -20,7 +22,23 @@ const dayBoundsFor = (dateStr) => ({
 
 export const upsertFollowUp = async (req, res) => {
   try {
-    const { date, type, data, submit } = req.body;
+    const { date, type, data, submit, lat, lng } = req.body;
+
+    if (submit === true) {
+      const office = getOfficeLocation();
+      const configured = office.lat !== null && office.lng !== null && office.radiusMeters !== null;
+      if (configured) {
+        if (typeof lat !== "number" || typeof lng !== "number") {
+          return res.status(400).json({ success: false, message: "Location is required to submit" });
+        }
+        const distance = haversineDistanceMeters(lat, lng, office.lat, office.lng);
+        if (distance > office.radiusMeters) {
+          return res
+            .status(400)
+            .json({ success: false, message: `You must be within ${office.radiusMeters}m of the office to submit` });
+        }
+      }
+    }
 
     let followUp = await FollowUp.findOne({ user: req.user._id, date, type });
     if (followUp && followUp.status === "reviewed") {

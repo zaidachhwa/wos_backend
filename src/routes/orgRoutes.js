@@ -8,6 +8,7 @@ import {
   createTeam,
   listTeams,
   updateTeam,
+  updateTeamThresholds,
   deleteTeam,
 } from "../controllers/orgController.js";
 import { authenticate, authorize } from "../middleware/auth.js";
@@ -25,4 +26,5 @@ teamRouter.use(authenticate);
 teamRouter.get("/", listTeams);
 teamRouter.post("/", authorize("admin", "subadmin"), validateTeamCreate, createTeam);
 teamRouter.patch("/:id", authorize("admin", "subadmin"), updateTeam);
+teamRouter.patch("/:id/thresholds", authorize("admin", "manager"), updateTeamThresholds);
 teamRouter.delete("/:id", authorize("admin", "subadmin"), deleteTeam);
