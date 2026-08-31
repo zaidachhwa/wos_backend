@@ -110,6 +110,57 @@ const run = async () => {
   assert.ok(mgrListNames.includes("Mgr Hire"), "manager's user list includes their own team's new hire");
   assert.ok(!mgrListNames.includes(memberA2.name), "manager's user list excludes a different team's member");
 
+  // --- access rules: only Director (not manager/subadmin/sublead) may
+  // assign a task to hr — the directory (task-assignee picker source) must
+  // hide hr from everyone except director (and admin, unscoped already) ---
+
+  const hrUser = await createUser(adminAuth, "hr");
+  const director = await createUser(adminAuth, "director");
+
+  const mgrDirectory = await axios.get(`${BASE}/users/directory`, manager.auth);
+  assert.ok(
+    !mgrDirectory.data.data.users.some((u) => u._id === hrUser.userId),
+    "a manager's directory excludes hr — only Director can assign tasks to hr"
+  );
+
+  const dirDirectory = await axios.get(`${BASE}/users/directory`, director.auth);
+  assert.ok(
+    dirDirectory.data.data.users.some((u) => u._id === hrUser.userId),
+    "a director's directory includes hr despite hr having no team"
+  );
+
+  // --- "HR can see all Tasks and Followups" — org-wide, like admin; Director
+  // deliberately does NOT get this (access rules: Director "can't see Tasks
+  // and Followups of Teams") ---
+
+  const hrProject = await axios.post(
+    `${BASE}/projects`,
+    { name: `Smoke HR Visibility ${Date.now()}`, manager: manager.userId },
+    manager.auth
+  );
+  const hrProjectId = hrProject.data.data.project._id;
+  const hrTask = await axios.post(
+    `${BASE}/tasks`,
+    { project: hrProjectId, title: "HR visibility task", assignees: [manager.userId], priority: "low" },
+    manager.auth
+  );
+  const hrTaskId = hrTask.data.data.task._id;
+
+  const hrGetsTask = await axios.get(`${BASE}/tasks/${hrTaskId}`, hrUser.auth);
+  assert.equal(hrGetsTask.status, 200, "hr can view a task in a project they're not a member of");
+
+  const hrListTasks = await axios.get(`${BASE}/tasks?project=${hrProjectId}`, hrUser.auth);
+  assert.ok(
+    hrListTasks.data.data.tasks.some((t) => t._id === hrTaskId),
+    "hr's task list includes a task from an unrelated project"
+  );
+
+  const dirGetsTask = await axios.get(
+    `${BASE}/tasks/${hrTaskId}`,
+    { ...director.auth, validateStatus: () => true }
+  );
+  assert.equal(dirGetsTask.status, 403, "director does NOT get org-wide task visibility, unlike hr");
+
   const mgrEditsOwn = await axios.patch(`${BASE}/users/${mgrHireId}`, { designation: "Engineer" }, manager.auth);
   assert.equal(mgrEditsOwn.status, 200, "manager edits a member on their own team");
 

@@ -46,7 +46,9 @@ export const getManagedUserIds = async (user) => {
 // which can legitimately span multiple teams — see
 // 2026-07-29-followup-team-scope-fix-design.md.
 export const reportScopeFilter = async (user) => {
-  if (user.role === "admin") {
+  // hr sees the org-wide report too — same "all Tasks and Followups"
+  // visibility as canViewProject/visibilityFilter in projectController.js.
+  if (user.role === "admin" || user.role === "hr") {
     return { role: { $ne: "admin" }, isActive: true };
   }
   if (user.role === "subadmin") {

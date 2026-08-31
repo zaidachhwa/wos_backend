@@ -210,7 +210,11 @@ const run = async () => {
     {
       date: today,
       type: "evening",
-      data: { completedWork: "wip", tomorrowPlan: "Finish onboarding flow\nReview PR #42" },
+      data: {
+        completedWork: "wip",
+        tomorrowPlan: "Finish onboarding flow\nReview PR #42",
+        projects: [{ hours: 8, minutes: 0, totalMinutes: 480 }],
+      },
       submit: true,
     },
     secondReport.auth
@@ -407,7 +411,12 @@ const run = async () => {
     );
     await axios.post(
       `${BASE}/followups`,
-      { date: d, type: "evening", data: { completedWork: "x", remainingWork: "y" }, submit: true },
+      {
+        date: d,
+        type: "evening",
+        data: { completedWork: "x", remainingWork: "y", projects: [{ hours: 8, minutes: 0, totalMinutes: 480 }] },
+        submit: true,
+      },
       historyUser.auth
     );
   }

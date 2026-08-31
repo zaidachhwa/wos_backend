@@ -25,7 +25,12 @@ const canManage = async (user, project) => {
 // Exported for moduleController/taskController: same visibility rule applies
 // to viewing a project's modules/tasks.
 export const canViewProject = async (user, project) => {
-  if (user.role === "admin") return true;
+  // hr sees every project/task/follow-up org-wide (access-rules: "HR can
+  // see all Tasks and Followups and all the Features") — unlike
+  // manager/subadmin below, this isn't a scoped expansion, it's unrestricted
+  // like admin. Director deliberately does NOT get this — the same rules
+  // carve out "Director... can't see Tasks and Followups of Teams".
+  if (["admin", "hr"].includes(user.role)) return true;
   if (idOf(project.manager) === String(user._id)) return true;
   if ((project.members || []).some((m) => idOf(m) === String(user._id))) return true;
   if (["manager", "subadmin"].includes(user.role)) {
@@ -44,7 +49,8 @@ export const canViewProject = async (user, project) => {
 // Exported for taskController: build a Project filter matching what a user
 // may view, so task list filtering doesn't duplicate the visibility rule.
 export const visibilityFilter = async (user) => {
-  if (user.role === "admin") return {};
+  // hr: org-wide, same as admin — see canViewProject above for why.
+  if (["admin", "hr"].includes(user.role)) return {};
   const scopeIds =
     ["manager", "subadmin"].includes(user.role) ? [...(await getManagedUserIds(user)), user._id] : [user._id];
   const [assignedModuleProjectIds, assignedTaskProjectIds] = await Promise.all([

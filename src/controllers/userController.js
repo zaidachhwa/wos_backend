@@ -148,7 +148,20 @@ export const listUsers = async (req, res) => {
 export const listDirectory = async (req, res) => {
   try {
     const scope = await resolveDepartmentScope(req.user);
-    const filter = scope ? { $or: [{ team: { $in: scope.teamIds } }, { _id: req.user._id }] } : {};
+    // hr is an org-wide role with no team, so a plain team-scoped filter
+    // always excludes them. Per the access rules, only Director may assign
+    // a task to hr — manager/subadmin/sublead must NOT see hr here, so the
+    // "see hr despite scope" carve-out is director-only (admin already sees
+    // everyone unscoped above).
+    const filter = scope
+      ? {
+          $or: [
+            { team: { $in: scope.teamIds } },
+            { _id: req.user._id },
+            ...(req.user.role === "director" ? [{ role: "hr" }] : []),
+          ],
+        }
+      : {};
     const users = await User.find(filter)
       .select("name role designation department team")
       .populate("department", "name")
