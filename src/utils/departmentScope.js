@@ -68,7 +68,7 @@ export const reportScopeFilter = async (user) => {
 //   2026-07-30-department-segregation-design.md) — unchanged fallback so an
 //   unassigned sub-lead isn't suddenly scoped to nothing.
 export const resolveDepartmentScope = async (user) => {
-  if (user.role === "admin") return null;
+  if (user.role === "admin" || user.role === "hr") return null;
 
   if (user.role === "subadmin") {
     const teamIds = await getManagedTeamIds(user.managedDepartment);

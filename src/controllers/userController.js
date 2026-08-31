@@ -34,6 +34,8 @@ const wouldRemoveLastAdmin = async (target, updates) => {
   return otherActiveAdmins === 0;
 };
 
+const DEADLINE_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
 export const createUser = async (req, res) => {
   try {
     const {
@@ -50,11 +52,22 @@ export const createUser = async (req, res) => {
       managedTeams,
       shiftStart,
       shiftEnd,
+      morningDeadline,
       joinedAt,
     } = req.body;
 
     if (!isValidShiftTime(shiftStart ?? null) || !isValidShiftTime(shiftEnd ?? null)) {
       return res.status(400).json({ success: false, message: "shiftStart/shiftEnd must be in HH:MM format" });
+    }
+
+    if (morningDeadline && !DEADLINE_RE.test(morningDeadline)) {
+      return res.status(400).json({ success: false, message: "morningDeadline must be in HH:mm format" });
+    }
+
+    if (req.user.role === "hr") {
+      if (role === "admin" || role === "director") {
+        return res.status(403).json({ success: false, message: "HR cannot create admin or director accounts" });
+      }
     }
 
     const allowedRoles = MANAGEABLE_ROLES[req.user.role];
@@ -109,6 +122,7 @@ export const createUser = async (req, res) => {
       managedTeams: role === "sublead" ? managedTeams || [] : [],
       shiftStart: shiftStart || null,
       shiftEnd: shiftEnd || null,
+      morningDeadline: morningDeadline || null,
       joinedAt: joinedAt || null,
     });
     const safeUser = await User.findById(user._id);
@@ -124,9 +138,12 @@ export const createUser = async (req, res) => {
 export const listUsers = async (req, res) => {
   try {
     const pageParams = paginationParams(req.query);
-    const baseFilter = MANAGEABLE_ROLES[req.user.role]
-      ? { _id: { $in: await getManagedUserIds(req.user) } }
-      : {};
+    const baseFilter =
+      req.user.role === "admin" || req.user.role === "hr" || req.user.role === "director"
+        ? {}
+        : MANAGEABLE_ROLES[req.user.role]
+          ? { _id: { $in: await getManagedUserIds(req.user) } }
+          : {};
     const total = await User.countDocuments(baseFilter);
     let query = User.find(baseFilter).populate(
       "department team reportingManager managedDepartment managedTeam managedTeams",
@@ -184,7 +201,7 @@ export const getUserById = async (req, res) => {
       : { _id: req.params.id };
     const user = await User.findOne(filter)
       .select(
-        "name email role designation department team managedDepartment managedTeam managedTeams reportingManager isActive createdAt shiftStart shiftEnd nextReviewDate terminationPending"
+        "name email role designation department team managedDepartment managedTeam managedTeams reportingManager isActive createdAt joinedAt shiftStart shiftEnd morningDeadline nextReviewDate terminationPending"
       )
       .populate("department", "name")
       .populate("team", "name")
@@ -215,6 +232,20 @@ const ALLOWED_UPDATE_FIELDS = {
     "managedTeams",
     "shiftStart",
     "shiftEnd",
+    "morningDeadline",
+    "joinedAt",
+  ],
+  hr: [
+    "name",
+    "designation",
+    "role",
+    "department",
+    "team",
+    "reportingManager",
+    "isActive",
+    "shiftStart",
+    "shiftEnd",
+    "morningDeadline",
     "joinedAt",
   ],
   subadmin: ["name", "designation", "role", "team", "isActive", "managedTeam", "shiftStart", "shiftEnd"],
@@ -234,9 +265,24 @@ export const updateUser = async (req, res) => {
         return res.status(400).json({ success: false, message: `${field} must be in HH:MM format` });
       }
     }
+    if ("morningDeadline" in updates) {
+      if (updates.morningDeadline !== null && updates.morningDeadline !== "" && !DEADLINE_RE.test(updates.morningDeadline)) {
+        return res.status(400).json({ success: false, message: "morningDeadline must be in HH:mm format or null" });
+      }
+      if (updates.morningDeadline === "") updates.morningDeadline = null;
+    }
     const target = await User.findById(req.params.id);
     if (!target) {
       return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    if (req.user.role === "hr") {
+      if (target.role === "admin" || target.role === "director") {
+        return res.status(403).json({ success: false, message: "HR cannot modify admin or director accounts" });
+      }
+      if (updates.role && (updates.role === "admin" || updates.role === "director")) {
+        return res.status(403).json({ success: false, message: "Forbidden role assignment" });
+      }
     }
 
     const allowedRoles = MANAGEABLE_ROLES[req.user.role];
@@ -283,7 +329,7 @@ export const updateUser = async (req, res) => {
         updates.managedTeam = null;
       }
     } else {
-      // admin — no scope restriction, but must keep managedDepartment/
+      // admin or hr — no team scope restriction, but must keep managedDepartment/
       // managedTeam/managedTeams consistent with whatever role results.
       const resultingRole = "role" in updates ? updates.role : target.role;
 

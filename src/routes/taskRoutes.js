@@ -20,7 +20,7 @@ const router = Router();
 router.use(authenticate);
 
 router.get("/", listTasks);
-router.post("/", authorize("admin", "manager", "subadmin", "sublead", "member"), validateTaskCreate, createTask);
+router.post("/", authorize("admin", "manager", "subadmin", "sublead", "member", "director"), validateTaskCreate, createTask);
 // Must come before "/:id" — otherwise Express matches "bulk" as the :id param.
 router.patch("/bulk", authorize("admin", "manager", "subadmin", "sublead"), bulkUpdateTasks);
 router.get("/:id", getTask);

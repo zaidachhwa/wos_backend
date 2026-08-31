@@ -113,6 +113,20 @@ export const createTask = async (req, res) => {
     // before it's "real" work.
     const isMember = req.user.role === "member";
 
+    // Director can only assign tasks to HR users — this is the enforcement
+    // point: the frontend filters the picker, the backend validates the data.
+    if (req.user.role === "director") {
+      const assigneeIds = assignees || [];
+      if (assigneeIds.length === 0) {
+        return res.status(400).json({ success: false, message: "Director must assign the task to at least one HR user" });
+      }
+      const assigneeUsers = await User.find({ _id: { $in: assigneeIds } }).select("role");
+      const nonHr = assigneeUsers.filter((u) => u.role !== "hr");
+      if (nonHr.length > 0) {
+        return res.status(403).json({ success: false, message: "Director can only assign tasks to HR users" });
+      }
+    }
+
     const task = await Task.create({
       project: project._id,
       modules: modules || [],
@@ -342,6 +356,10 @@ export const listTasks = async (req, res) => {
         return res.status(403).json({ success: false, message: "Forbidden" });
       }
       filter.project = project;
+    } else if (req.user.role === "director") {
+      // Director cannot browse all team tasks — they only see tasks they
+      // created (assigned to HR) and tasks assigned to themselves.
+      filter.$or = [{ createdBy: req.user._id }, { assignees: req.user._id }];
     } else if (req.user.role !== "admin") {
       const viewableIds = await Project.find(await visibilityFilter(req.user)).distinct("_id");
       filter.project = { $in: viewableIds };
@@ -412,11 +430,30 @@ export const updateTask = async (req, res) => {
         .json({ success: false, message: "Task is pending manager approval and can't be edited yet" });
     }
 
-    const canManageFully = SUBLEAD_PLUS.includes(req.user.role) && (await canViewProject(req.user, project));
+    // Director can fully manage tasks they created (director→HR tasks).
+    // canViewProject already returns true for director (full project visibility),
+    // so we just need to also check they are the creator of this task.
+    const isDirectorCreator = req.user.role === "director" && String(task.createdBy) === String(req.user._id);
+    const canManageFully =
+      (SUBLEAD_PLUS.includes(req.user.role) && (await canViewProject(req.user, project))) || isDirectorCreator;
     const isAssignee = task.assignees.some((a) => idOf(a) === String(req.user._id));
     const canFlag = await canFlagDefects(req.user, task, project);
     if (!canManageFully && !isAssignee && !canFlag) {
       return res.status(403).json({ success: false, message: "Forbidden" });
+    }
+
+    // Director cannot mark their own tasks as completed — only the HR
+    // assignee may do that (they do the work, they close the loop).
+    if (
+      isDirectorCreator &&
+      !isAssignee &&
+      req.body.status === "completed" &&
+      task.status !== "completed"
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Only the assigned HR user can mark this task as completed",
+      });
     }
 
     const allowedFields = [
