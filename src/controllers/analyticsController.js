@@ -216,7 +216,7 @@ export const getProjectAnalytics = async (req, res) => {
 
 export const getUserAnalytics = async (req, res) => {
   try {
-    const { startDate, endDate, project, minHours, maxHours, sort = "timeDesc", page = 1, limit = 10 } = req.query;
+    const { startDate, endDate, user, project, minHours, maxHours, sort = "timeDesc", page = 1, limit = 10 } = req.query;
 
     const matchQuery = { status: { $in: ["submitted", "reviewed"] }, type: "evening", "evening.projects": { $exists: true, $not: { $size: 0 } } };
 
@@ -226,6 +226,11 @@ export const getUserAnalytics = async (req, res) => {
       matchQuery.date = { $gte: startDate };
     } else if (endDate) {
       matchQuery.date = { $lte: endDate };
+    }
+
+    // Filter by a specific user — mirrors the same pattern in getProjectAnalytics.
+    if (user) {
+      matchQuery.user = new mongoose.Types.ObjectId(user);
     }
 
     const aggregationPipeline = [

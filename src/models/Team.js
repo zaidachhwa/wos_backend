@@ -10,7 +10,7 @@ const teamSchema = new mongoose.Schema(
     // were configurable (>=80 green, >=50 yellow, else red).
     performanceThresholds: {
       red: { type: Number, default: 50 },
-      yellow: { type: Number, default: 80 },
+      yellow: { type: Number, default: 85 },
     },
   },
   { timestamps: true }
