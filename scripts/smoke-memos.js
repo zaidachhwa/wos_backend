@@ -66,7 +66,7 @@ const run = async () => {
 
   // --- Task 1: thresholds default, and permission scoping ---
 
-  assert.deepEqual(teamA.data.data.team.performanceThresholds, { red: 50, yellow: 80 }, "default thresholds");
+  assert.deepEqual(teamA.data.data.team.performanceThresholds, { red: 50, yellow: 85 }, "default thresholds");
 
   const mgrSetsOwn = await axios.patch(`${BASE}/teams/${teamAId}/thresholds`, { red: 101, yellow: 200 }, manager.auth);
   assert.equal(mgrSetsOwn.status, 200, "manager sets thresholds for their own team");

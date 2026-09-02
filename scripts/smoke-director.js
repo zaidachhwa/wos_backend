@@ -138,6 +138,27 @@ const run = async () => {
   assert.equal(tasksRes.status, 200, "director can list tasks");
   console.log("smoke-director: check director task list is scoped (returns 200)");
 
+  // 11. Director can view analytics (dashboard, projects, users)
+  const analyticsDashRes = await axios.get(`${BASE}/analytics/dashboard`, director);
+  assert.equal(analyticsDashRes.status, 200, "director can access analytics dashboard");
+  const analyticsProjectsRes = await axios.get(`${BASE}/analytics/projects`, director);
+  assert.equal(analyticsProjectsRes.status, 200, "director can access analytics projects");
+  const analyticsUsersRes = await axios.get(`${BASE}/analytics/users`, director);
+  assert.equal(analyticsUsersRes.status, 200, "director can access analytics users");
+  console.log("smoke-director: check director can view analytics (200)");
+
+  // 12. Director can see leaderboard anytime (not locked)
+  const directorLeaderboardRes = await axios.get(`${BASE}/leaderboard`, director);
+  assert.equal(directorLeaderboardRes.status, 200, "director can access leaderboard");
+  assert.ok(!directorLeaderboardRes.data.data?.locked, "director leaderboard is not locked on any day");
+  console.log("smoke-director: check director can view leaderboard anytime (not locked)");
+
+  // 13. HR can see leaderboard anytime (not locked)
+  const hrLeaderboardRes = await axios.get(`${BASE}/leaderboard`, hrUser.auth);
+  assert.equal(hrLeaderboardRes.status, 200, "HR can access leaderboard");
+  assert.ok(!hrLeaderboardRes.data.data?.locked, "HR leaderboard is not locked on any day");
+  console.log("smoke-director: check HR can view leaderboard anytime (not locked)");
+
   console.log("\nsmoke-director: all checks passed!");
 };
 

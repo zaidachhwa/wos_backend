@@ -34,7 +34,7 @@ const weekBoundsOf = (date) => {
 
 const dayStr = (d) => istDayStr(d);
 
-const REPORT_ROLES = ["admin", "manager", "subadmin"];
+const REPORT_ROLES = ["admin", "manager", "subadmin", "hr", "director"];
 
 export const getLeaderboard = async (req, res) => {
   try {
@@ -49,8 +49,9 @@ export const getLeaderboard = async (req, res) => {
     // (same clock the week math below already assumes). CSV export is an
     // explicit admin/manager report action, so it bypasses the lock —
     // otherwise there'd be no way to pull last week's numbers on a Friday.
-    // Admins also see the live view any day, for oversight.
-    const bypassLock = format === "csv" || req.user.role === "admin" || req.user.role === "subadmin";
+    // Admins, subadmins, directors, and HR also see the live view any day.
+    const bypassLock =
+      format === "csv" || ["admin", "subadmin", "director", "hr"].includes(req.user.role);
     if (!bypassLock && istClock(new Date()).dayOfWeek !== 1) {
       const nextMonday = mondayOf(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
       return res.json({

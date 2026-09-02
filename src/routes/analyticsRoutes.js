@@ -5,8 +5,8 @@ import { authenticate, authorize } from "../middleware/auth.js";
 const router = express.Router();
 
 router.use(authenticate);
-// Only admin, manager, subadmin, and hr should access analytics
-router.use(authorize("admin", "manager", "subadmin", "hr"));
+// Only admin, manager, subadmin, hr, and director should access analytics
+router.use(authorize("admin", "manager", "subadmin", "hr", "director"));
 
 router.get("/dashboard", getDashboardSummary);
 router.get("/projects", getProjectAnalytics);
