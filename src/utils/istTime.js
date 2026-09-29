@@ -22,3 +22,24 @@ export const istClock = (d = new Date()) => {
   const ist = toIST(d);
   return { hours: ist.getUTCHours(), minutes: ist.getUTCMinutes(), dayOfWeek: ist.getUTCDay() };
 };
+
+export const isLastDayOfMonthIST = (d = new Date()) => {
+  const ist = toIST(d);
+  const year = ist.getUTCFullYear();
+  const month = ist.getUTCMonth(); // 0-based
+  const date = ist.getUTCDate();
+  const lastDate = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  return date === lastDate;
+};
+
+export const previousIstMonthStr = (d = new Date()) => {
+  const ist = toIST(d);
+  let year = ist.getUTCFullYear();
+  let month = ist.getUTCMonth() - 1; // 0-based
+  if (month < 0) {
+    month = 11;
+    year -= 1;
+  }
+  return `${year}-${String(month + 1).padStart(2, "0")}`;
+};
+

@@ -17,7 +17,6 @@ import {
 } from "../services/monthlyAppraisal.js";
 import { getTenureThresholds, setTenureThresholds } from "../utils/appraisalConfig.js";
 import { bandFor } from "../utils/performanceBand.js";
-import { runMonthlyMemoSweep } from "../services/memoSweep.js";
 
 const csvCell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
 
@@ -276,19 +275,6 @@ export const updateAppraisalConfig = async (req, res) => {
     }
     const updated = await setTenureThresholds(values);
     return res.json({ success: true, message: "Appraisal config updated", data: updated });
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ success: false, message: "Something went wrong" });
-  }
-};
-
-// Manual "run it right now" escape hatch for the monthly Red/Yellow/Green
-// memo sweep — mirrors leaderboardController.runOverdueSweep /
-// attendanceController.runAttendanceSweepNow.
-export const runMemoSweep = async (req, res) => {
-  try {
-    const result = await runMonthlyMemoSweep(req.body?.month);
-    return res.json({ success: true, message: "Memo sweep completed", data: result });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ success: false, message: "Something went wrong" });

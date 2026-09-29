@@ -40,7 +40,10 @@ export const NOTIFICATION_TYPES = [
   "followup_reviewed",
   "project_updated",
   "points_awarded",
+  // Legacy: the memo system that created these was removed; kept so existing
+  // notification documents of this type still validate on save.
   "performance_memo",
+  "appraisal_update",
 ];
 
 export const ACTIVITY_ENTITY_TYPES = ["project", "module", "task", "followup", "timeblock", "user"];

@@ -8,10 +8,11 @@ import { loadAttendanceConfig } from "./utils/attendanceConfig.js";
 import { loadAppraisalConfig } from "./utils/appraisalConfig.js";
 import { applyOverduePenalties } from "./services/overdueSweep.js";
 import { sendEveningFollowUpReminders } from "./services/followUpReminders.js";
-import { runMonthlyMemoSweep } from "./services/memoSweep.js";
 import { runMorningAttendanceSweep } from "./services/attendanceSweep.js";
 import { localDay } from "./controllers/notificationController.js";
-import { istClock, istDayStr } from "./utils/istTime.js";
+import { istClock } from "./utils/istTime.js";
+import { ensureAppraisalConfig } from "./services/appraisal/appraisalConfig.js";
+import { runAppraisalScheduler } from "./services/appraisal/appraisalScheduler.js";
 
 const PORT = process.env.PORT || 5000;
 
@@ -28,6 +29,7 @@ const start = async () => {
     await loadPointsConfig();
     await loadAttendanceConfig();
     await loadAppraisalConfig();
+    await ensureAppraisalConfig();
     applyOverduePenalties().catch((error) => console.error("overdue sweep failed:", error.message));
     setInterval(() => {
       applyOverduePenalties().catch((error) => console.error("overdue sweep failed:", error.message));
@@ -74,21 +76,18 @@ const start = async () => {
       }
     }, 60 * 1000);
 
-    // Monthly performance memo sweep: fires once when the IST calendar rolls
-    // into a new month, evaluating the month that just ended (the default
-    // month runMonthlyMemoSweep resolves) against Shams's tenure-band score
-    // and this team's Red/Yellow/Green thresholds. The in-memory guard only
-    // prevents re-firing within one process's uptime — true restart-safe
-    // idempotency comes from Memo's unique {user, month} index (a repeat
-    // pass is a no-op per user), same layering as the reminder sweep above.
-    let lastMemoSweepMonth = null;
-    setInterval(() => {
-      const currentMonth = istDayStr(new Date()).slice(0, 7);
-      if (lastMemoSweepMonth !== currentMonth) {
-        lastMemoSweepMonth = currentMonth;
-        runMonthlyMemoSweep().catch((error) => console.error("memo sweep failed:", error.message));
-      }
-    }, 60 * 60 * 1000);
+    // Monthly performance appraisal: closes the previous IST month and
+    // emails finalized appraisals from 00:01 IST on the 1st (see
+    // services/appraisal/appraisalScheduler.js). Every step is claim-based
+    // and idempotent, so ticking every minute — and catching up on the
+    // first tick after a restart — can never double-close or double-send.
+    // APPRAISAL_SCHEDULER_DISABLED=true turns it off (e.g. a local copy of
+    // production data with a live mail key).
+    if (process.env.APPRAISAL_SCHEDULER_DISABLED !== "true") {
+      setInterval(() => {
+        runAppraisalScheduler(new Date()).catch((error) => console.error("appraisal scheduler failed:", error.message));
+      }, 60 * 1000);
+    }
 
     const server = http.createServer(app);
     initIO(server);

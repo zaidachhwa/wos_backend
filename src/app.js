@@ -23,6 +23,8 @@ import departmentViolationRoutes from "./routes/departmentViolationRoutes.js";
 import appraisalRoutes from "./routes/appraisalRoutes.js";
 import attendanceRoutes from "./routes/attendanceRoutes.js";
 import analyticsRoutes from "./routes/analyticsRoutes.js";
+import appraisalsRoutes from "./routes/appraisalsRoutes.js";
+import bugRoutes from "./routes/bugRoutes.js";
 
 const app = express();
 
@@ -48,6 +50,8 @@ app.use("/api/reports", reportRoutes);
 app.use("/api/search", searchRoutes);
 app.use("/api/leaderboard", leaderboardRoutes);
 app.use("/api/appraisal", appraisalRoutes);
+app.use("/api/appraisals", appraisalsRoutes);
+app.use("/api/bugs", bugRoutes);
 app.use("/api/attendance", attendanceRoutes);
 app.use("/api/department-violations", departmentViolationRoutes);
 app.use("/api/analytics", analyticsRoutes);

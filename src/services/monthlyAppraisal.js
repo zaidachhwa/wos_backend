@@ -48,7 +48,7 @@ export const defectCountOf = (s) => s.bugs + s.clientChanges + s.lates + s.leave
 // One person's full itemized appraisal for a month — bug/client-change task
 // list, late/leave entries with dates and notes, not just counts. Shared by
 // the "me" endpoint (self), the admin/subadmin/hr "view anyone" endpoint,
-// and the monthly memo sweep (services/memoSweep.js), so all three always
+// (the monthly memo sweep that also used it has been removed), so both always
 // agree on exactly what counts toward the score.
 export const computeUserAppraisal = async (userId, monthStr, joinedAt) => {
   const { start, end } = monthBounds(monthStr);

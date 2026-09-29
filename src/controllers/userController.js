@@ -2,7 +2,6 @@ import bcrypt from "bcrypt";
 
 import User from "../models/User.js";
 import Team from "../models/Team.js";
-import Memo from "../models/Memo.js";
 import { paginationParams, paginationMeta } from "../utils/pagination.js";
 import { getManagedTeamIdsForActor, getManagedUserIds, resolveDepartmentScope } from "../utils/departmentScope.js";
 import { isValidShiftTime } from "../utils/shiftTime.js";
@@ -201,7 +200,7 @@ export const getUserById = async (req, res) => {
       : { _id: req.params.id };
     const user = await User.findOne(filter)
       .select(
-        "name email role designation department team managedDepartment managedTeam managedTeams reportingManager isActive createdAt joinedAt shiftStart shiftEnd morningDeadline nextReviewDate terminationPending"
+        "name email role designation department team managedDepartment managedTeam managedTeams reportingManager isActive createdAt joinedAt shiftStart shiftEnd morningDeadline"
       )
       .populate("department", "name")
       .populate("team", "name")
@@ -404,46 +403,6 @@ export const deleteUser = async (req, res) => {
     target.isActive = false;
     await target.save();
     return res.json({ success: true, message: "User deleted", data: { user: target } });
-  } catch (error) {
-    return res.status(400).json({ success: false, message: error.message });
-  }
-};
-
-const canManageTarget = async (actor, targetId) => {
-  if (actor.role === "admin") return true;
-  const allowedRoles = MANAGEABLE_ROLES[actor.role];
-  if (!allowedRoles) return false;
-  const managedUserIds = (await getManagedUserIds(actor)).map(String);
-  return managedUserIds.includes(String(targetId));
-};
-
-export const listUserMemos = async (req, res) => {
-  try {
-    if (!(await canManageTarget(req.user, req.params.id))) {
-      return res.status(404).json({ success: false, message: "User not found" });
-    }
-    const memos = await Memo.find({ user: req.params.id }).sort("-createdAt");
-    return res.json({ success: true, message: "Memos fetched", data: { memos } });
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ success: false, message: "Something went wrong" });
-  }
-};
-
-// Admin-only (route-gated): voids every existing memo and clears the
-// termination flag — a clean strike-count reset. nextReviewDate is left
-// as-is; a reset undoes the count and the flag, not a delay that already
-// took effect.
-export const resetUserMemos = async (req, res) => {
-  try {
-    const target = await User.findById(req.params.id);
-    if (!target) {
-      return res.status(404).json({ success: false, message: "User not found" });
-    }
-    await Memo.updateMany({ user: target._id, voided: false }, { $set: { voided: true } });
-    target.terminationPending = false;
-    await target.save();
-    return res.json({ success: true, message: "Memos reset", data: { user: target } });
   } catch (error) {
     return res.status(400).json({ success: false, message: error.message });
   }

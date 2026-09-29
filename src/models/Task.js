@@ -67,6 +67,10 @@ const taskSchema = new mongoose.Schema(
     // Flagged when this task exists because a client asked for a change —
     // feeds the appraisal defect-rate formula alongside `type: "bug"`.
     isClientChange: { type: Boolean, default: false },
+    // HR's classification of *why* a client change happened (a key into
+    // AppraisalSettings.clientChangeCategories). null = not categorized yet;
+    // only categories marked countsAgainstEmployee hurt the appraisal.
+    clientChangeCategory: { type: String, default: null },
     // Guards the one-time overdue-penalty sweep (services/overdueSweep.js)
     // from double-deducting the same task.
     overduePenaltyApplied: { type: Boolean, default: false },
