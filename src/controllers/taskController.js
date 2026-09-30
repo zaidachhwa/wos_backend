@@ -223,11 +223,11 @@ export const createTask = async (req, res) => {
 };
 
 // Mirrors followUpController.reviewFollowUp's state-machine: the creator's
-// reportingManager, an admin, a subadmin whose managed department includes
-// the creator, or a sublead whose managed teams include the creator, may
-// decide — and only while pending.
+// reportingManager, an admin, HR (org-wide, like admin), a subadmin whose
+// managed department includes the creator, or a sublead whose managed teams
+// include the creator, may decide — and only while pending.
 const canDecideApproval = async (user, task) => {
-  if (user.role === "admin") return true;
+  if (user.role === "admin" || user.role === "hr") return true;
   if (!task.createdBy) return false;
   const creator = await User.findById(task.createdBy);
   if (!creator) return false;
@@ -434,8 +434,11 @@ export const updateTask = async (req, res) => {
     // canViewProject already returns true for director (full project visibility),
     // so we just need to also check they are the creator of this task.
     const isDirectorCreator = req.user.role === "director" && String(task.createdBy) === String(req.user._id);
+    // HR can fully manage the tasks HR created (same shape as the director
+    // rule above) — not everyone else's.
+    const isHrCreator = req.user.role === "hr" && String(task.createdBy) === String(req.user._id);
     const canManageFully =
-      (SUBLEAD_PLUS.includes(req.user.role) && (await canViewProject(req.user, project))) || isDirectorCreator;
+      (SUBLEAD_PLUS.includes(req.user.role) && (await canViewProject(req.user, project))) || isDirectorCreator || isHrCreator;
     const isAssignee = task.assignees.some((a) => idOf(a) === String(req.user._id));
     const canFlag = await canFlagDefects(req.user, task, project);
     if (!canManageFully && !isAssignee && !canFlag) {

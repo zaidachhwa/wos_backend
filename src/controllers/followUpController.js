@@ -120,7 +120,11 @@ export const listFollowUps = async (req, res) => {
         user: { $in: reports.map((r) => r._id) },
         date,
         type,
-      }).populate("user", "name role department");
+      })
+        .populate("user", "name role department")
+        // Evening follow-ups log time per project — name them for the
+        // team view's "hours by project" breakdown.
+        .populate("evening.projects.project", "name");
       const byUser = new Map(existing.map((f) => [String(f.user._id), f]));
       const followUps = reports.map(
         (r) =>
