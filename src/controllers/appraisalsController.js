@@ -5,8 +5,7 @@ import EmployeeAppraisal from "../models/EmployeeAppraisal.js";
 import Task from "../models/Task.js";
 import User from "../models/User.js";
 import { EMAIL_STATUSES } from "../constants/appraisal.constants.js";
-import { getActiveCriteria, getSettings } from "../services/appraisal/appraisalConfig.js";
-import { validateWeightage } from "../services/appraisal/appraisalEngine.js";
+import { getActiveCriteria, getSettings, weightageStatus } from "../services/appraisal/appraisalConfig.js";
 import { istMonthOf, isValidMonth, monthPeriod } from "../services/appraisal/appraisalPeriod.js";
 import { roundDisplay } from "../services/appraisal/appraisalMath.js";
 import {
@@ -149,7 +148,7 @@ export const listAppraisals = async (req, res) => {
         rows,
         stats: statsOf(rows, settings),
         classifications: settings.classifications,
-        weightage: validateWeightage(criteria),
+        weightage: await weightageStatus(criteria, settings),
         periodStatus: (await AppraisalPeriod.findOne({ month }).select("status closedAt closeSummary").lean()) || { status: "open" },
       },
     });

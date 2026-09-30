@@ -33,6 +33,19 @@ const appraisalCriterionSchema = new mongoose.Schema(
     params: { type: mongoose.Schema.Types.Mixed, default: {} },
     ratingOptions: { type: [ratingOptionSchema], default: [] },
     isActive: { type: Boolean, default: true },
+    // Departments this criterion applies to. Empty = all departments (and
+    // employees without one). Each department's applicable active criteria
+    // must total exactly 100% (see validateDepartmentWeightage).
+    departments: [{ type: mongoose.Schema.Types.ObjectId, ref: "Department" }],
+    // Per-department weightage overrides; a department without one uses
+    // `weightage` above (the default).
+    departmentWeightages: [
+      {
+        _id: false,
+        department: { type: mongoose.Schema.Types.ObjectId, ref: "Department", required: true },
+        weightage: { type: Number, required: true, min: 0, max: 100 },
+      },
+    ],
     sortOrder: { type: Number, default: 0 },
     group: { type: String, enum: ["automatic", "hr_metric", "hr_evaluation"], default: "automatic" },
     usedInFinalized: { type: Boolean, default: false },

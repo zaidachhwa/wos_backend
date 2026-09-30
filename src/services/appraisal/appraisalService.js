@@ -3,7 +3,7 @@ import EmployeeAppraisal from "../../models/EmployeeAppraisal.js";
 import User from "../../models/User.js";
 import { EDITABLE_STATUSES } from "../../constants/appraisal.constants.js";
 import { buildConfigSnapshot, getActiveCriteria, getSettings } from "./appraisalConfig.js";
-import { computeAppraisal, validateWeightage } from "./appraisalEngine.js";
+import { appliesToDepartment, computeAppraisal, criteriaForDepartment, validateWeightage } from "./appraisalEngine.js";
 import { collectMetrics } from "./appraisalMetrics.js";
 import { hasMonthEnded, monthPeriod } from "./appraisalPeriod.js";
 import { roundStore } from "./appraisalMath.js";
@@ -92,14 +92,16 @@ export const recalculate = async (docs, { now = new Date(), settings, criteria }
   const regular = [];
   for (const doc of live) {
     const snap = snapshotConfig(doc);
-    if (snap) await recalcGroup([doc], snap.settings, snap.criteria, now);
+    // A snapshot already holds exactly the criteria that applied to this
+    // employee when it was finalized — don't re-filter by today's department.
+    if (snap) await recalcGroup([doc], snap.settings, snap.criteria, now, { byDepartment: false });
     else regular.push(doc);
   }
-  if (regular.length) await recalcGroup(regular, liveCfg, liveCrit, now);
+  if (regular.length) await recalcGroup(regular, liveCfg, liveCrit, now, { byDepartment: true });
   return docs;
 };
 
-const recalcGroup = async (live, cfg, crit, now) => {
+const recalcGroup = async (live, cfg, crit, now, { byDepartment }) => {
   const month = live[0].month;
   const metricsByUser = await collectMetrics({
     userIds: live.map((d) => d.user._id || d.user),
@@ -116,7 +118,8 @@ const recalcGroup = async (live, cfg, crit, now) => {
   for (const doc of live) {
     const key = String(doc.user._id || doc.user);
     const metrics = metricsByUser.get(key);
-    const result = computeAppraisal({ criteria: crit, settings: cfg, metrics, evaluations: doc.evaluations || [] });
+    const applicable = byDepartment ? criteriaForDepartment(crit, deptByUser.get(key)) : crit;
+    const result = computeAppraisal({ criteria: applicable, settings: cfg, metrics, evaluations: doc.evaluations || [] });
     const update = {
       entries: result.entries,
       totalScore: result.totalScore,
@@ -196,6 +199,12 @@ export const setEvaluation = async (doc, criterionKey, input, actor) => {
     ? snap.criteria.find((c) => c.key === criterionKey)
     : await AppraisalCriterion.findOne({ key: criterionKey, isActive: true }).lean();
   if (!criterion) throw new AppraisalError("Criterion not found or inactive", 404);
+  if (!snap) {
+    const employee = await User.findById(doc.user).select("department").lean();
+    if (!appliesToDepartment(criterion, employee?.department)) {
+      throw new AppraisalError("This criterion doesn't apply to this employee's department");
+    }
+  }
   if (criterion.type === "automatic") throw new AppraisalError("Automatic criteria are calculated by the system and can't be rated");
 
   const existing = (doc.evaluations || []).find((e) => e.criterionKey === criterionKey);
@@ -272,16 +281,20 @@ export const finalizeAppraisal = async (doc, actor, { now = new Date(), settings
   if (!hasMonthEnded(doc.month, now)) {
     throw new AppraisalError("An appraisal can only be finalized after its month has ended (IST)", 409);
   }
+  const employee = await User.findById(doc.user).select(EMPLOYEE_FIELDS).populate("department", "name").populate("team", "name");
   const snap = snapshotConfig(doc);
   const cfg = snap?.settings || settings || (await getSettings());
-  const crit = snap?.criteria || criteria || (await getActiveCriteria());
+  // Only the criteria that apply to this employee's department — that set
+  // must total 100%, and it's exactly what gets snapshotted.
+  const crit = snap?.criteria || criteriaForDepartment(criteria || (await getActiveCriteria()), employee?.department?._id);
   const weight = validateWeightage(crit);
-  if (!weight.valid) throw new AppraisalError(weight.message, 422);
+  if (!weight.valid) {
+    throw new AppraisalError(`${employee?.department?.name || "No department"}: ${weight.message}`, 422);
+  }
 
   await recalculateOne(doc, { now, settings: cfg, criteria: crit });
   if (!doc._complete) throw new AppraisalError(`Missing inputs: ${doc.missingInputs.join(", ")}`, 422);
 
-  const employee = await User.findById(doc.user).select(EMPLOYEE_FIELDS).populate("department", "name").populate("team", "name");
   const wasReopened = doc.status === "reopened";
   const set = {
     status: "finalized",

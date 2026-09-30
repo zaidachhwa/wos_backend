@@ -1,14 +1,12 @@
+import mongoose from "mongoose";
+
 import AppraisalCriterion from "../models/AppraisalCriterion.js";
 import AppraisalSettings from "../models/AppraisalSettings.js";
+import Department from "../models/Department.js";
 import { BUG_STATUSES, CRITERION_TYPES, METRICS, SCORING_METHODS } from "../constants/appraisal.constants.js";
 import { ROLES } from "../constants/roles.constants.js";
-import { getAllCriteria, getSettings } from "../services/appraisal/appraisalConfig.js";
-import {
-  validateClassifications,
-  validateCriterion,
-  validateSeverities,
-  validateWeightage,
-} from "../services/appraisal/appraisalEngine.js";
+import { getAllCriteria, getSettings, weightageStatus } from "../services/appraisal/appraisalConfig.js";
+import { validateClassifications, validateCriterion, validateSeverities } from "../services/appraisal/appraisalEngine.js";
 import { audit, diffFields } from "../services/appraisal/appraisalAudit.js";
 
 const fail = (res, status, message, extra = {}) => res.status(status).json({ success: false, message, ...extra });
@@ -17,7 +15,44 @@ const serverError = (res, error) => {
   return fail(res, 500, "Something went wrong");
 };
 
-const CRITERION_FIELDS = ["name", "description", "type", "group", "weightage", "metric", "scoringMethod", "params", "ratingOptions", "isActive"];
+const CRITERION_FIELDS = [
+  "name",
+  "description",
+  "type",
+  "group",
+  "weightage",
+  "metric",
+  "scoringMethod",
+  "params",
+  "ratingOptions",
+  "isActive",
+  "departments",
+  "departmentWeightages",
+];
+
+// [{ department, weightage }] -> sorted, de-duplicated, numbers coerced,
+// blanks dropped (blank = "use the default"), and overrides for departments
+// the criterion no longer applies to removed.
+const normalizeDeptWeightages = (list, departments) => {
+  const byDept = new Map();
+  for (const o of list || []) {
+    const dept = String(o?.department?._id || o?.department || "");
+    if (!dept || o.weightage === "" || o.weightage === null || o.weightage === undefined) continue;
+    byDept.set(dept, Number(o.weightage));
+  }
+  return [...byDept.entries()]
+    .filter(([dept]) => !departments.length || departments.includes(dept))
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([department, weightage]) => ({ department, weightage }));
+};
+
+const deptWeightageError = (c) => {
+  for (const o of c.departmentWeightages) {
+    if (!Number.isFinite(o.weightage) || o.weightage < 0 || o.weightage > 100) return `Department weightage for "${c.name}" must be 0–100`;
+    if (Math.round(o.weightage * 100) !== Math.round(o.weightage * 100 * 1e6) / 1e6) return "Department weightage allows at most 2 decimals";
+  }
+  return null;
+};
 
 const slugify = (s) =>
   String(s || "")
@@ -49,20 +84,32 @@ const normalizeCriterion = (body, existing = {}) => {
     if (!body.group) c.group = String(c.metric || "").startsWith("hr_") ? "hr_metric" : "automatic";
   }
   c.isActive = c.isActive !== false;
+  // Stored as sorted id strings so an unchanged selection never diffs.
+  c.departments = [...new Set((c.departments || []).map((d) => String(d?._id || d)))].sort();
+  c.departmentWeightages = normalizeDeptWeightages(c.departmentWeightages, c.departments);
   return c;
 };
 
-// Every criteria write must leave the ACTIVE set at exactly 100% —
-// otherwise nothing could be finalized. Rebalancing several at once goes
-// through updateAllocation below.
-const activeTotalAfter = async (changedId, next) => {
-  const all = await AppraisalCriterion.find().lean();
-  const active = all
-    .map((c) => (String(c._id) === String(changedId) ? { ...c, ...next } : c))
-    .concat(changedId ? [] : [next])
-    .filter((c) => c.isActive);
-  return validateWeightage(active);
+// Every id (applies-to list and weightage overrides) must be a real
+// department — "all departments" is the empty list.
+const invalidDepartments = async (c) => {
+  const ids = [...new Set([...c.departments, ...c.departmentWeightages.map((o) => o.department)])];
+  if (!ids.length) return null;
+  if (!ids.every((id) => mongoose.isValidObjectId(id))) return "Invalid department";
+  const found = await Department.countDocuments({ _id: { $in: ids } });
+  return found === ids.length ? null : "One or more selected departments no longer exist";
 };
+
+// Saving is never blocked by the 100% rule — HR often reduces existing
+// criteria first and adds new ones afterwards, so the configuration is
+// legitimately "in progress" between saves. The rule is enforced where it
+// matters: finalizeAppraisal refuses a department that isn't at exactly
+// 100% (manual and month-close alike). Every save reports the current
+// per-department status so the UI can warn.
+const currentWeightage = async () => weightageStatus(await AppraisalCriterion.find({ isActive: true }).lean());
+
+const savedMessage = (base, weightage) =>
+  weightage.valid ? base : `${base}. Weightage isn't 100% yet — ${weightage.message} Appraisals in those departments can't be finalized until it is.`;
 
 export const getConfig = async (req, res) => {
   try {
@@ -73,7 +120,7 @@ export const getConfig = async (req, res) => {
       data: {
         criteria,
         settings,
-        weightage: validateWeightage(criteria.filter((c) => c.isActive)),
+        weightage: await weightageStatus(criteria.filter((c) => c.isActive), settings),
         catalog: { metrics: METRICS, scoringMethods: SCORING_METHODS, types: CRITERION_TYPES, bugStatuses: BUG_STATUSES, roles: ROLES },
       },
     });
@@ -89,17 +136,14 @@ export const createCriterion = async (req, res) => {
     if (await AppraisalCriterion.exists({ key: c.key })) return fail(res, 409, `A criterion with key "${c.key}" already exists`);
     const errors = validateCriterion(c);
     if (errors.length) return fail(res, 400, errors[0], { errors });
-    if (c.isActive) {
-      const total = await activeTotalAfter(null, c);
-      if (!total.valid) {
-        return fail(res, 422, `${total.message} Save it as inactive, then adjust the weightage allocation.`, { weightage: total });
-      }
-    }
+    const deptError = deptWeightageError(c) || (await invalidDepartments(c));
+    if (deptError) return fail(res, 400, deptError);
     const max = await AppraisalCriterion.findOne().sort({ sortOrder: -1 }).select("sortOrder").lean();
     const created = await AppraisalCriterion.create({ ...c, sortOrder: (max?.sortOrder ?? -1) + 1, createdBy: req.user._id, updatedBy: req.user._id });
     await bumpVersion(req.user);
     await audit({ actor: req.user, action: "criterion_created", entityType: "criterion", entityId: created._id, after: c });
-    return res.status(201).json({ success: true, message: "Criterion created", data: { criterion: created } });
+    const weightage = await currentWeightage();
+    return res.status(201).json({ success: true, message: savedMessage("Criterion created", weightage), data: { criterion: created, weightage } });
   } catch (error) {
     return serverError(res, error);
   }
@@ -109,14 +153,13 @@ export const updateCriterion = async (req, res) => {
   try {
     const existing = await AppraisalCriterion.findById(req.params.id).lean();
     if (!existing) return fail(res, 404, "Criterion not found");
+    const before = normalizeCriterion({ group: existing.group }, existing);
     const next = normalizeCriterion(req.body, existing);
     const errors = validateCriterion(next);
     if (errors.length) return fail(res, 400, errors[0], { errors });
-    if (next.isActive !== existing.isActive || next.weightage !== existing.weightage) {
-      const total = await activeTotalAfter(existing._id, next);
-      if (!total.valid) return fail(res, 422, `${total.message} Use "Adjust weightage" to rebalance.`, { weightage: total });
-    }
-    const changes = diffFields(existing, next, CRITERION_FIELDS);
+    const deptError = deptWeightageError(next) || (await invalidDepartments(next));
+    if (deptError) return fail(res, 400, deptError);
+    const changes = diffFields(before, next, CRITERION_FIELDS);
     if (!changes) return res.json({ success: true, message: "No changes", data: { criterion: existing } });
 
     const updated = await AppraisalCriterion.findByIdAndUpdate(
@@ -127,17 +170,27 @@ export const updateCriterion = async (req, res) => {
     await bumpVersion(req.user);
     const common = { actor: req.user, entityType: "criterion", entityId: existing._id, meta: { key: existing.key } };
     await audit({ ...common, action: "criterion_updated", ...changes });
-    if ("weightage" in changes.after) await audit({ ...common, action: "weightage_changed", before: { weightage: existing.weightage }, after: { weightage: next.weightage } });
+    if ("weightage" in changes.after || "departmentWeightages" in changes.after) {
+      await audit({
+        ...common,
+        action: "weightage_changed",
+        before: { weightage: before.weightage, departmentWeightages: before.departmentWeightages },
+        after: { weightage: next.weightage, departmentWeightages: next.departmentWeightages },
+      });
+    }
     if ("ratingOptions" in changes.after) await audit({ ...common, action: "rating_config_changed", before: { ratingOptions: existing.ratingOptions }, after: { ratingOptions: next.ratingOptions } });
     if ("isActive" in changes.after) await audit({ ...common, action: next.isActive ? "criterion_activated" : "criterion_deactivated" });
-    return res.json({ success: true, message: "Criterion updated", data: { criterion: updated } });
+    const weightage = await currentWeightage();
+    return res.json({ success: true, message: savedMessage("Criterion updated", weightage), data: { criterion: updated, weightage } });
   } catch (error) {
     return serverError(res, error);
   }
 };
 
-// Bulk weightage/activation rebalance — the way to add, remove or re-weight
-// criteria while keeping the active total at exactly 100%.
+// Bulk weightage/activation rebalance — default weightages and
+// per-department overrides together. Always saves; the response says which
+// departments (if any) aren't at 100% yet.
+// Items: [{ id, isActive, weightage, departmentWeightages? }].
 export const updateAllocation = async (req, res) => {
   try {
     const items = Array.isArray(req.body.items) ? req.body.items : [];
@@ -145,33 +198,50 @@ export const updateAllocation = async (req, res) => {
     const byId = new Map(items.map((i) => [String(i.id), i]));
     if ([...byId.keys()].some((id) => !all.some((c) => String(c._id) === id))) return fail(res, 400, "Unknown criterion in allocation");
 
-    const next = all.map((c) => {
+    const old = all.map((c) => ({ ...c, ...normalizeCriterion({ group: c.group }, c) }));
+    const next = old.map((c) => {
       const i = byId.get(String(c._id));
-      return i ? { ...c, weightage: Number(i.weightage), isActive: i.isActive !== false } : c;
+      if (!i) return c;
+      return {
+        ...c,
+        weightage: Number(i.weightage),
+        isActive: i.isActive !== false,
+        departmentWeightages: i.departmentWeightages !== undefined ? normalizeDeptWeightages(i.departmentWeightages, c.departments) : c.departmentWeightages,
+      };
     });
     for (const c of next) {
       if (!Number.isFinite(c.weightage) || c.weightage < 0 || c.weightage > 100) return fail(res, 400, `Invalid weightage for "${c.name}"`);
+      const err = deptWeightageError(c) || (await invalidDepartments(c));
+      if (err) return fail(res, 400, err);
     }
-    const total = validateWeightage(next.filter((c) => c.isActive));
-    if (!total.valid) return fail(res, 422, total.message, { weightage: total });
+    const total = await weightageStatus(next.filter((c) => c.isActive));
 
-    const changed = next.filter((c) => {
-      const old = all.find((o) => String(o._id) === String(c._id));
-      return old.weightage !== c.weightage || old.isActive !== c.isActive;
-    });
+    const changed = next.filter((c, idx) => diffFields(old[idx], c, ["weightage", "isActive", "departmentWeightages"]));
     if (!changed.length) return res.json({ success: true, message: "No changes", data: { weightage: total } });
 
     await AppraisalCriterion.bulkWrite(
-      changed.map((c) => ({ updateOne: { filter: { _id: c._id }, update: { $set: { weightage: c.weightage, isActive: c.isActive, updatedBy: req.user._id } } } }))
+      changed.map((c) => ({
+        updateOne: {
+          filter: { _id: c._id },
+          update: { $set: { weightage: c.weightage, isActive: c.isActive, departmentWeightages: c.departmentWeightages, updatedBy: req.user._id } },
+        },
+      }))
     );
     await bumpVersion(req.user);
     for (const c of changed) {
-      const old = all.find((o) => String(o._id) === String(c._id));
+      const prev = old.find((o) => String(o._id) === String(c._id));
       const common = { actor: req.user, entityType: "criterion", entityId: c._id, meta: { key: c.key } };
-      if (old.weightage !== c.weightage) await audit({ ...common, action: "weightage_changed", before: { weightage: old.weightage }, after: { weightage: c.weightage } });
-      if (old.isActive !== c.isActive) await audit({ ...common, action: c.isActive ? "criterion_activated" : "criterion_deactivated" });
+      if (diffFields(prev, c, ["weightage", "departmentWeightages"])) {
+        await audit({
+          ...common,
+          action: "weightage_changed",
+          before: { weightage: prev.weightage, departmentWeightages: prev.departmentWeightages },
+          after: { weightage: c.weightage, departmentWeightages: c.departmentWeightages },
+        });
+      }
+      if (prev.isActive !== c.isActive) await audit({ ...common, action: c.isActive ? "criterion_activated" : "criterion_deactivated" });
     }
-    return res.json({ success: true, message: "Weightage allocation saved", data: { weightage: total } });
+    return res.json({ success: true, message: savedMessage("Weightage saved", total), data: { weightage: total } });
   } catch (error) {
     return serverError(res, error);
   }

@@ -2,8 +2,7 @@ import AppraisalPeriod from "../../models/AppraisalPeriod.js";
 import EmployeeAppraisal from "../../models/EmployeeAppraisal.js";
 import User from "../../models/User.js";
 import { notify } from "../../utils/record.js";
-import { getActiveCriteria, getSettings } from "./appraisalConfig.js";
-import { validateWeightage } from "./appraisalEngine.js";
+import { getActiveCriteria, getSettings, weightageStatus } from "./appraisalConfig.js";
 import { audit } from "./appraisalAudit.js";
 import { monthDueForClose, monthLabel, monthPeriod } from "./appraisalPeriod.js";
 import { AppraisalError, appraisedUserFilter, ensureDrafts, finalizeAppraisal, recalculate } from "./appraisalService.js";
@@ -51,7 +50,10 @@ export const closeMonth = async (month, { now = new Date(), actor = null } = {})
     await recalculate(docs, { now, settings, criteria });
 
     const mode = settings.automation?.autoFinalizeMode || "complete";
-    const weight = validateWeightage(criteria);
+    // Per department: one department with a bad allocation doesn't block the
+    // rest — finalizeAppraisal re-checks each employee's own criteria set and
+    // those failures land in `errors`.
+    const weight = await weightageStatus(criteria, settings);
     let finalized = 0;
     const incomplete = [];
     const errors = [];
@@ -64,7 +66,6 @@ export const closeMonth = async (month, { now = new Date(), actor = null } = {})
         if (!doc._complete) incomplete.push(String(doc.user));
         continue;
       }
-      if (!weight.valid) continue;
       try {
         await finalizeAppraisal(doc, null, { now, settings, criteria, auto: true });
         finalized += 1;
@@ -88,9 +89,9 @@ export const closeMonth = async (month, { now = new Date(), actor = null } = {})
     // as HR finalizes them (see queueDueEmails).
     if (incomplete.length || !weight.valid || errors.length) {
       const hr = await User.find({ role: { $in: ["admin", "hr"] }, isActive: true }).select("_id");
-      const body = !weight.valid
-        ? `Nothing was auto-finalized: ${weight.message}`
-        : `${finalized} finalized automatically; ${incomplete.length} still need HR input${errors.length ? `; ${errors.length} failed` : ""}.`;
+      const body =
+        `${finalized} finalized automatically; ${incomplete.length} still need HR input${errors.length ? `; ${errors.length} failed` : ""}.` +
+        (weight.valid ? "" : ` Weightage problem — ${weight.message}`);
       for (const u of hr) {
         notify({ user: u._id, type: "appraisal_update", title: `${monthLabel(month)} appraisals closed`, body, link: `/appraisal?month=${month}` });
       }

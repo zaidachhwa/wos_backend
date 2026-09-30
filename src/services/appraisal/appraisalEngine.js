@@ -311,6 +311,51 @@ export const validateWeightage = (activeCriteria) => {
   return { valid: true, total, message: "Weightage totals 100%." };
 };
 
+// A criterion with no departments applies to every department (and to
+// employees with none); otherwise only to the listed departments.
+export const appliesToDepartment = (criterion, departmentId) => {
+  const list = criterion.departments || [];
+  if (!list.length) return true;
+  return Boolean(departmentId) && list.some((d) => String(d?._id || d) === String(departmentId));
+};
+
+// A department's own weightage for a criterion (departmentWeightages
+// override), falling back to the criterion's default weightage.
+export const effectiveWeightage = (criterion, departmentId) => {
+  const override = departmentId
+    ? (criterion.departmentWeightages || []).find((o) => String(o.department?._id || o.department) === String(departmentId))
+    : null;
+  return override ? Number(override.weightage) : Number(criterion.weightage);
+};
+
+// The criteria that apply to a department, each carrying that department's
+// effective weightage — the exact set (and numbers) the engine scores and a
+// finalized appraisal snapshots.
+export const criteriaForDepartment = (criteria, departmentId) =>
+  criteria.filter((c) => appliesToDepartment(c, departmentId)).map((c) => ({ ...c, weightage: effectiveWeightage(c, departmentId) }));
+
+// The 100% rule, per department: every department's applicable active
+// criteria must total exactly 100%. `departments` = [{ _id, name }]; pass
+// includeUnassigned when some appraised employees have no department (they
+// only get the all-department criteria).
+export const validateDepartmentWeightage = (activeCriteria, departments = [], { includeUnassigned = false } = {}) => {
+  const scopes = departments.map((d) => ({ departmentId: String(d._id), name: d.name }));
+  if (includeUnassigned || !scopes.length) scopes.push({ departmentId: null, name: departments.length ? "No department" : "All departments" });
+  const byDepartment = scopes.map((s) => {
+    const r = validateWeightage(criteriaForDepartment(activeCriteria, s.departmentId));
+    return { ...s, total: r.total, valid: r.valid, message: r.message };
+  });
+  const invalid = byDepartment.filter((d) => !d.valid);
+  return {
+    valid: invalid.length === 0,
+    total: validateWeightage(activeCriteria.filter((c) => !(c.departments || []).length)).total,
+    byDepartment,
+    message: invalid.length
+      ? invalid.map((d) => `${d.name}: ${d.message}`).join(" ")
+      : "Weightage totals 100% for every department.",
+  };
+};
+
 export const validateCriterion = (c) => {
   const errors = [];
   if (!c.name || !String(c.name).trim()) errors.push("Name is required");

@@ -5,7 +5,9 @@ import {
   applyScoringMethod,
   classify,
   computeAppraisal,
+  criteriaForDepartment,
   identifyImprovementAreas,
+  validateDepartmentWeightage,
   scoreCriterion,
   validateClassifications,
   validateCriterion,
@@ -61,6 +63,63 @@ describe("weightage validation", () => {
   });
   test("decimal weightages that sum to 100 are accepted without float drift", () => {
     assert.equal(validateWeightage([{ weightage: 33.33 }, { weightage: 33.33 }, { weightage: 33.34 }]).valid, true);
+  });
+});
+
+describe("department-specific criteria", () => {
+  const eng = { _id: "d-eng", name: "Engineering" };
+  const ops = { _id: "d-ops", name: "Operations" };
+  const all = [
+    { key: "a", weightage: 90, departments: [] },
+    { key: "eng_only", weightage: 10, departments: ["d-eng"] },
+    { key: "ops_only", weightage: 10, departments: ["d-ops"] },
+  ];
+
+  test("no departments = applies everywhere; listed = only there", () => {
+    assert.deepEqual(criteriaForDepartment(all, "d-eng").map((c) => c.key), ["a", "eng_only"]);
+    assert.deepEqual(criteriaForDepartment(all, "d-ops").map((c) => c.key), ["a", "ops_only"]);
+    assert.deepEqual(criteriaForDepartment(all, null).map((c) => c.key), ["a"]);
+  });
+
+  test("each department must total exactly 100%", () => {
+    assert.equal(validateDepartmentWeightage(all, [eng, ops]).valid, true);
+    const r = validateDepartmentWeightage(all.slice(0, 2), [eng, ops]);
+    assert.equal(r.valid, false);
+    assert.match(r.message, /^Operations:/);
+    assert.equal(r.byDepartment.find((d) => d.name === "Engineering").valid, true);
+  });
+
+  test("employees without a department are checked only when they exist", () => {
+    assert.equal(validateDepartmentWeightage(all, [eng, ops]).byDepartment.length, 2);
+    const r = validateDepartmentWeightage(all, [eng, ops], { includeUnassigned: true });
+    assert.equal(r.valid, false); // "No department" only gets the 90% all-department criteria
+    assert.match(r.message, /No department/);
+  });
+
+  test("per-department weightage overrides the default only in that department", () => {
+    const shared = [
+      { key: "tasks", weightage: 60, departmentWeightages: [{ department: "d-ops", weightage: 70 }], departments: [] },
+      { key: "discipline", weightage: 40, departmentWeightages: [{ department: "d-ops", weightage: 30 }], departments: [] },
+    ];
+    assert.deepEqual(criteriaForDepartment(shared, "d-eng").map((c) => c.weightage), [60, 40]);
+    assert.deepEqual(criteriaForDepartment(shared, "d-ops").map((c) => c.weightage), [70, 30]);
+    assert.equal(validateDepartmentWeightage(shared, [eng, ops]).valid, true);
+    const broken = [{ ...shared[0] }, { ...shared[1], departmentWeightages: [] }]; // Ops: 70 + 40
+    const r = validateDepartmentWeightage(broken, [eng, ops]);
+    assert.equal(r.valid, false);
+    assert.equal(r.byDepartment.find((d) => d.name === "Operations").total, 110);
+  });
+
+  test("an employee is scored only on their department's criteria", () => {
+    const criteria = [
+      { ...byKey("discipline"), weightage: 50, departments: [] },
+      { ...byKey("professionalism"), key: "eng_quality", name: "Code Quality", weightage: 50, departments: ["d-eng"] },
+      { ...byKey("professionalism"), key: "ops_sla", name: "SLA Adherence", weightage: 50, departments: ["d-ops"] },
+    ];
+    const evaluations = ["discipline", "eng_quality", "ops_sla"].map((k) => ({ criterionKey: k, ratingKey: "excellent" }));
+    const r = computeAppraisal({ criteria: criteriaForDepartment(criteria, "d-ops"), settings, metrics: {}, evaluations });
+    assert.deepEqual(r.entries.map((e) => e.criterionKey), ["discipline", "ops_sla"]);
+    assert.equal(r.totalScore, 100);
   });
 });
 

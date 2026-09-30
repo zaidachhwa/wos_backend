@@ -255,11 +255,23 @@ describe("finalization, locking and history", () => {
     assert.equal(a.hrInputs.leaves, 2);
   });
 
-  test("weightage allocation that isn't exactly 100% is rejected", async () => {
+  test("a weightage that isn't 100% saves with a warning but blocks finalization", async () => {
     const cfg = (await api.get("/appraisals/config", as("hr"))).data.data;
-    const items = cfg.criteria.map((c) => ({ id: c._id, isActive: c.isActive, weightage: c.key === "leaves" ? c.weightage + 1 : c.weightage }));
+    const original = cfg.criteria.map((c) => ({ id: c._id, isActive: c.isActive, weightage: c.weightage }));
+    const items = original.map((i) => ({ ...i, weightage: cfg.criteria.find((c) => c._id === i.id).key === "leaves" ? i.weightage + 1 : i.weightage }));
     const r = await call(() => api.put("/appraisals/criteria/allocation", { items }, as("hr")));
-    assert.equal(r.status, 422);
+    assert.equal(r.status, 200);
+    assert.equal(r.data.data.weightage.valid, false);
+    assert.match(r.data.message, /isn't 100% yet/);
+
+    // Sara's draft is in the same department → can't be finalized now.
+    const sara = await appraisalFor("sara");
+    const f = await call(() => api.post(`/appraisals/${sara._id}/finalize`, {}, as("hr")));
+    assert.equal(f.status, 422);
+    assert.match(f.data.message, /Technology/);
+
+    const fixed = await call(() => api.put("/appraisals/criteria/allocation", { items: original }, as("hr")));
+    assert.equal(fixed.data.data.weightage.valid, true);
   });
 
   test("reopen requires a reason, is audited, and re-finalizing records old vs new score", async () => {
@@ -422,5 +434,110 @@ describe("monthly emails", () => {
     const sara = (await appraisalFor("sara")).toObject();
     const { html } = buildAppraisalEmail(sara, "Sara");
     if (sara.classification.key !== "excellent") assert.match(html, /require improvement/);
+  });
+});
+
+describe("department-specific criteria", () => {
+  let tech;
+  let ops;
+  test("criteria can target selected departments; each department must total 100%", async () => {
+    tech = (await User.findById(users.lead._id)).department;
+    ops = await Department.create({ name: "Operations" });
+    users.opsy = await User.create({ name: "Opsy", email: "opsy@test.local", password: "x", role: "member", department: ops._id });
+
+    const manual = (name, departments) => ({
+      name,
+      type: "manual",
+      weightage: 10,
+      isActive: false,
+      departments,
+      ratingOptions: [{ label: "Poor", pct: 33.33 }, { label: "Excellent", pct: 100 }],
+    });
+    const cq = await call(() => api.post("/appraisals/criteria", manual("Code Quality", [String(tech)]), as("hr")));
+    assert.equal(cq.status, 201, cq.data?.message);
+    assert.deepEqual(cq.data.data.criterion.departments.map(String), [String(tech)]);
+    const sla = await call(() => api.post("/appraisals/criteria", manual("SLA Adherence", [String(ops._id)]), as("hr")));
+    assert.equal(sla.status, 201, sla.data?.message);
+
+    const cfg = (await api.get("/appraisals/config", as("hr"))).data.data;
+    const completion = cfg.criteria.find((c) => c.key === "task_completion");
+    const alloc = (activate) =>
+      cfg.criteria.map((c) => ({
+        id: c._id,
+        isActive: activate.includes(c.key) ? true : c.isActive,
+        weightage: c.key === "task_completion" ? completion.weightage - 10 : c.weightage,
+      }));
+
+    // Step 1 of a rebalance: Engineering gets its extra 10%, Operations drops
+    // to 90%. That's allowed to save (HR finishes the rest next) — only
+    // Operations appraisals are blocked from finalizing meanwhile.
+    const bad = await call(() => api.put("/appraisals/criteria/allocation", { items: alloc(["code_quality"]) }, as("hr")));
+    assert.equal(bad.status, 200);
+    assert.equal(bad.data.data.weightage.valid, false);
+    assert.match(bad.data.message, /Operations/);
+    const opsDraft = await getOrCreateDraft(users.opsy._id, MONTH);
+    const blocked = await call(() => api.post(`/appraisals/${opsDraft._id}/finalize`, {}, as("hr")));
+    assert.equal(blocked.status, 422);
+    assert.match(blocked.data.message, /^Operations:/);
+
+    const good = await call(() => api.put("/appraisals/criteria/allocation", { items: alloc(["code_quality", "sla_adherence"]) }, as("hr")));
+    assert.equal(good.status, 200, good.data?.message);
+    assert.ok(good.data.data.weightage.byDepartment.every((d) => d.valid));
+  });
+
+  test("each employee is scored only on their own department's criteria", async () => {
+    const keys = async (who) =>
+      (await api.get(`/appraisals/employee/${users[who]._id}/month/${MONTH}`, as("hr"))).data.data.appraisal.entries.map((e) => e.criterionKey);
+    const leadKeys = await keys("lead");
+    const opsKeys = await keys("opsy");
+    assert.ok(leadKeys.includes("code_quality") && !leadKeys.includes("sla_adherence"));
+    assert.ok(opsKeys.includes("sla_adherence") && !opsKeys.includes("code_quality"));
+    const sum = async (who) =>
+      (await api.get(`/appraisals/employee/${users[who]._id}/month/${MONTH}`, as("hr"))).data.data.appraisal.entries.reduce((s, e) => s + e.weightage, 0);
+    assert.equal(await sum("lead"), 100);
+    assert.equal(await sum("opsy"), 100);
+  });
+
+  test("HR can't rate a criterion that doesn't apply to the employee's department", async () => {
+    const lead = await appraisalFor("lead");
+    const r = await call(() => api.patch(`/appraisals/${lead._id}/evaluations/sla_adherence`, { ratingKey: "excellent" }, as("hr")));
+    assert.equal(r.status, 400);
+  });
+
+  test("already-finalized appraisals are unaffected", async () => {
+    const john = await appraisalFor("john");
+    assert.ok(!john.entries.some((e) => e.criterionKey === "code_quality"));
+  });
+
+  test("a criterion can carry a different weightage per department", async () => {
+    const cfg = (await api.get("/appraisals/config", as("hr"))).data.data;
+    const tc = cfg.criteria.find((c) => c.key === "task_completion");
+    const sla = cfg.criteria.find((c) => c.key === "sla_adherence");
+
+    // Editing one criterion on its own saves, with a warning naming the
+    // department that's now over 100%.
+    const lone = await call(() =>
+      api.patch(`/appraisals/criteria/${tc._id}`, { departmentWeightages: [{ department: String(ops._id), weightage: tc.weightage + 10 }] }, as("hr"))
+    );
+    assert.equal(lone.status, 200);
+    assert.equal(lone.data.data.weightage.valid, false);
+    assert.match(lone.data.message, /Operations/);
+
+    // Operations: drop SLA Adherence (−10) and give Task Completion +10 there only.
+    const items = cfg.criteria.map((c) => ({
+      id: c._id,
+      isActive: c._id === sla._id ? false : c.isActive,
+      weightage: c.weightage,
+      departmentWeightages: c._id === tc._id ? [{ department: String(ops._id), weightage: tc.weightage + 10 }] : c.departmentWeightages,
+    }));
+    const r = await call(() => api.put("/appraisals/criteria/allocation", { items }, as("hr")));
+    assert.equal(r.status, 200, r.data?.message);
+    assert.ok(await AppraisalAuditLog.exists({ action: "weightage_changed", entityId: tc._id }));
+
+    const weightOf = async (who) =>
+      (await api.get(`/appraisals/employee/${users[who]._id}/month/${MONTH}`, as("hr"))).data.data.appraisal.entries.find((e) => e.criterionKey === "task_completion")
+        .weightage;
+    assert.equal(await weightOf("opsy"), tc.weightage + 10);
+    assert.equal(await weightOf("lead"), tc.weightage);
   });
 });

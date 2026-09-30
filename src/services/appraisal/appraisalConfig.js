@@ -1,6 +1,9 @@
 import AppraisalCriterion from "../../models/AppraisalCriterion.js";
 import AppraisalSettings from "../../models/AppraisalSettings.js";
+import Department from "../../models/Department.js";
+import User from "../../models/User.js";
 import { DEFAULT_CRITERIA, DEFAULT_SETTINGS } from "./appraisalDefaults.js";
+import { validateDepartmentWeightage } from "./appraisalEngine.js";
 
 // Seeds the default criteria/settings the first time the module runs
 // against a database, then never again — after that the DB copy is the
@@ -30,6 +33,18 @@ export const getActiveCriteria = () => AppraisalCriterion.find({ isActive: true 
 
 export const getAllCriteria = () => AppraisalCriterion.find().sort({ sortOrder: 1, createdAt: 1 }).lean();
 
+// Per-department 100% check against the live departments. The "No
+// department" scope is only checked when appraised employees without a
+// department actually exist.
+export const weightageStatus = async (activeCriteria, settings) => {
+  const cfg = settings || (await getSettings());
+  const [departments, unassigned] = await Promise.all([
+    Department.find().select("name").sort("name").lean(),
+    User.exists({ isActive: true, role: { $in: cfg.appraisedRoles || [] }, department: null }),
+  ]);
+  return validateDepartmentWeightage(activeCriteria, departments, { includeUnassigned: Boolean(unassigned) });
+};
+
 // A frozen copy of everything that shaped a score — stored on each
 // finalized appraisal so later config edits can never rewrite history.
 export const buildConfigSnapshot = (criteria, settings) => ({
@@ -46,6 +61,7 @@ export const buildConfigSnapshot = (criteria, settings) => ({
     scoringMethod: c.scoringMethod,
     params: c.params,
     ratingOptions: c.ratingOptions,
+    departments: (c.departments || []).map(String),
     sortOrder: c.sortOrder,
   })),
   bugSeverities: settings.bugSeverities,
