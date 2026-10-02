@@ -41,7 +41,7 @@ const streakOf = (morningDays) => {
 
 export const teamReport = async (req, res) => {
   try {
-    const { from, to, format } = req.query;
+    const { from, to, format, department } = req.query;
     if (!from || !to) {
       return res.status(400).json({ success: false, message: "from and to are required" });
     }
@@ -51,7 +51,12 @@ export const teamReport = async (req, res) => {
       return res.status(400).json({ success: false, message: "from and to must be a valid date range" });
     }
 
-    const reportFilter = await reportScopeFilter(req.user);
+    let reportFilter = await reportScopeFilter(req.user);
+    // Apply optional department filter (admin/hr/director scope allows it;
+    // for scoped roles we only narrow — never expand — their existing filter).
+    if (department) {
+      reportFilter = { ...reportFilter, department };
+    }
     const people = await User.find(reportFilter).select("name role designation").sort("name");
     const ids = people.map((p) => p._id);
 

@@ -5,7 +5,14 @@ import User from "../models/User.js";
 
 export const getDashboardSummary = async (req, res) => {
   try {
-    const { startDate, endDate, user, project } = req.query;
+    const { startDate, endDate, user, project, department } = req.query;
+
+    // Scope user IDs if department filter is provided
+    let departmentUserIds = null;
+    if (department) {
+      const deptUsers = await User.find({ department, isActive: true }).select("_id");
+      departmentUserIds = deptUsers.map((u) => u._id);
+    }
 
     const matchQuery = { status: { $in: ["submitted", "reviewed"] }, type: "evening", "evening.projects": { $exists: true, $not: { $size: 0 } } };
 
@@ -19,6 +26,8 @@ export const getDashboardSummary = async (req, res) => {
 
     if (user) {
       matchQuery.user = new mongoose.Types.ObjectId(user);
+    } else if (departmentUserIds) {
+      matchQuery.user = { $in: departmentUserIds };
     }
 
     // 1. Total Projects
@@ -123,7 +132,14 @@ export const getDashboardSummary = async (req, res) => {
 
 export const getProjectAnalytics = async (req, res) => {
   try {
-    const { startDate, endDate, user, project, minHours, maxHours, sort = "timeDesc", page = 1, limit = 10 } = req.query;
+    const { startDate, endDate, user, project, minHours, maxHours, sort = "timeDesc", page = 1, limit = 10, department } = req.query;
+
+    // Scope by department if provided
+    let departmentUserIds = null;
+    if (department) {
+      const deptUsers = await User.find({ department, isActive: true }).select("_id");
+      departmentUserIds = deptUsers.map((u) => u._id);
+    }
 
     const matchQuery = { status: { $in: ["submitted", "reviewed"] }, type: "evening", "evening.projects": { $exists: true, $not: { $size: 0 } } };
 
@@ -136,6 +152,8 @@ export const getProjectAnalytics = async (req, res) => {
     }
     if (user) {
       matchQuery.user = new mongoose.Types.ObjectId(user);
+    } else if (departmentUserIds) {
+      matchQuery.user = { $in: departmentUserIds };
     }
 
     const aggregationPipeline = [
@@ -216,7 +234,14 @@ export const getProjectAnalytics = async (req, res) => {
 
 export const getUserAnalytics = async (req, res) => {
   try {
-    const { startDate, endDate, user, project, minHours, maxHours, sort = "timeDesc", page = 1, limit = 10 } = req.query;
+    const { startDate, endDate, user, project, minHours, maxHours, sort = "timeDesc", page = 1, limit = 10, department } = req.query;
+
+    // Scope by department if provided
+    let departmentUserIds = null;
+    if (department) {
+      const deptUsers = await User.find({ department, isActive: true }).select("_id");
+      departmentUserIds = deptUsers.map((u) => u._id);
+    }
 
     const matchQuery = { status: { $in: ["submitted", "reviewed"] }, type: "evening", "evening.projects": { $exists: true, $not: { $size: 0 } } };
 
@@ -231,6 +256,8 @@ export const getUserAnalytics = async (req, res) => {
     // Filter by a specific user — mirrors the same pattern in getProjectAnalytics.
     if (user) {
       matchQuery.user = new mongoose.Types.ObjectId(user);
+    } else if (departmentUserIds) {
+      matchQuery.user = { $in: departmentUserIds };
     }
 
     const aggregationPipeline = [

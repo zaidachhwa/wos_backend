@@ -13,6 +13,7 @@ import { localDay } from "./controllers/notificationController.js";
 import { istClock } from "./utils/istTime.js";
 import { ensureAppraisalConfig } from "./services/appraisal/appraisalConfig.js";
 import { runAppraisalScheduler } from "./services/appraisal/appraisalScheduler.js";
+import { sendWeeklyDirectorReports } from "./services/weeklyDirectorReport.js";
 
 const PORT = process.env.PORT || 5000;
 
@@ -88,6 +89,23 @@ const start = async () => {
         runAppraisalScheduler(new Date()).catch((error) => console.error("appraisal scheduler failed:", error.message));
       }, 60 * 1000);
     }
+
+    // Weekly director department report — fires every Monday at/after 08:00 IST.
+    // The per-run date guard (lastWeeklyReportDate) makes it fire exactly once
+    // per Monday even across ticks or restarts on the same day.
+    let lastWeeklyReportDate = null;
+    setInterval(() => {
+      const now = new Date();
+      const { hours, dayOfWeek } = istClock(now);
+      const isMonday = dayOfWeek === 1;
+      const today = localDay(now);
+      if (isMonday && hours >= 8 && lastWeeklyReportDate !== today) {
+        lastWeeklyReportDate = today;
+        sendWeeklyDirectorReports(now).catch((error) =>
+          console.error("weekly director report failed:", error.message)
+        );
+      }
+    }, 60 * 1000);
 
     const server = http.createServer(app);
     initIO(server);

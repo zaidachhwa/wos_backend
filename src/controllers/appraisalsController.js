@@ -22,9 +22,10 @@ import {
   updateHrInputs,
 } from "../services/appraisal/appraisalService.js";
 import { canManage, canViewAll, canViewAppraisal, isTeamLead, managedIdSet, sanitizeAppraisal } from "../services/appraisal/appraisalAccess.js";
-import { processEmailQueue, retryEmail } from "../services/appraisal/appraisalEmails.js";
+import { processEmailQueue, queueDueEmails, retryEmail } from "../services/appraisal/appraisalEmails.js";
 import { closeMonth } from "../services/appraisal/appraisalScheduler.js";
 import { audit } from "../services/appraisal/appraisalAudit.js";
+import { maybeSendDirectorDeptReport } from "../services/appraisal/directorDeptReport.js";
 
 const USER_FIELDS = "name email role designation department team isActive";
 const STALE_MS = 60 * 1000;
@@ -257,14 +258,17 @@ export const submit = mutate((doc, req) => submitAppraisal(doc, req.user), "Appr
 export const finalize = async (req, res) => {
   try {
     const doc = await loadAppraisal(req.params.id);
-    const result = await finalizeAppraisal(doc, req.user);
-    const fresh = await EmployeeAppraisal.findById(result?._id || doc._id);
-    // Queue and send the email immediately — HR has finalized, employee should be notified now.
+    await finalizeAppraisal(doc, req.user);
+    const fresh = await EmployeeAppraisal.findById(doc._id).populate("user", USER_FIELDS);
+    // Queue and send the employee email immediately.
     const settings = await getSettings();
     queueDueEmails(new Date()).catch((e) => console.error("appraisal email queue failed:", e.message));
     processEmailQueue(new Date(), { maxAttempts: settings.automation?.maxEmailAttempts || 3 }).catch((e) =>
       console.error("appraisal email send failed:", e.message)
     );
+    // Check if the whole department is done — email director if so.
+    const deptId = fresh?.user?.department;
+    if (deptId) maybeSendDirectorDeptReport(deptId, doc.month).catch((e) => console.error("director dept report failed:", e.message));
     return res.json({ success: true, message: "Appraisal finalized", data: { appraisal: await detailPayload(fresh, req.user) } });
   } catch (error) {
     return handle(res, error);
@@ -295,6 +299,16 @@ export const finalizeMonth = async (req, res) => {
     processEmailQueue(new Date(), { maxAttempts: settings.automation?.maxEmailAttempts || 3 }).catch((e) =>
       console.error("appraisal email send failed:", e.message)
     );
+    // Check each unique department — email directors for any now-complete ones.
+    const deptIds = [...new Set(
+      await Promise.all(docs.map(async (d) => {
+        const u = await User.findById(d.user).select("department").lean();
+        return u?.department ? String(u.department) : null;
+      }))
+    )].filter(Boolean);
+    for (const deptId of deptIds) {
+      maybeSendDirectorDeptReport(deptId, month).catch((e) => console.error("director dept report failed:", e.message));
+    }
     return res.json({ success: true, message: `${finalized} finalized, ${skipped.length} skipped`, data: { finalized, skipped } });
   } catch (error) {
     return handle(res, error);

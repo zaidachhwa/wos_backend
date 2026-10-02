@@ -185,6 +185,8 @@ export const createTask = async (req, res) => {
         project: project._id,
         meta: { title: task.title },
       });
+
+      // Notify assignees in-app
       for (const userId of task.assignees) {
         notify({
           user: userId,
@@ -192,6 +194,38 @@ export const createTask = async (req, res) => {
           title: `Assigned to task "${task.title}"`,
           link: `/tasks/${task._id}`,
         });
+      }
+
+      // Email assignees when the creator is HR or Admin
+      if (["hr", "admin"].includes(req.user.role) && task.assignees.length > 0) {
+        const assigneeUsers = await User.find({ _id: { $in: task.assignees } }).select("name email");
+        const { emailConfigured, sendEmail } = await import("../services/resend.js");
+        if (emailConfigured()) {
+          const deadlineStr = task.deadline
+            ? new Date(task.deadline).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
+            : null;
+          const taskUrl = `${process.env.CLIENT_ORIGIN || ""}/tasks/${task._id}`;
+          for (const au of assigneeUsers) {
+            sendEmail({
+              to: au.email,
+              subject: `New Task Assigned: ${task.title}`,
+              html: `
+                <div style="font-family:Arial,sans-serif;line-height:1.6;color:#1c1b19;max-width:600px">
+                  <p>Hi ${au.name},</p>
+                  <p><strong>${req.user.name}</strong> (${req.user.role.toUpperCase()}) has assigned you a new task.</p>
+                  <div style="border:1px solid #e8e5e0;border-radius:12px;padding:16px;margin:16px 0">
+                    <p style="margin:0"><strong>Task:</strong> ${task.title}</p>
+                    ${task.description ? `<p style="margin:4px 0 0"><strong>Description:</strong> ${task.description}</p>` : ""}
+                    ${deadlineStr ? `<p style="margin:4px 0 0"><strong>Deadline:</strong> ${deadlineStr}</p>` : ""}
+                    <p style="margin:4px 0 0"><strong>Priority:</strong> ${task.priority || "Normal"}</p>
+                    <p style="margin:4px 0 0"><strong>Project:</strong> ${project.name}</p>
+                  </div>
+                  <p><a href="${taskUrl}" style="color:#6366f1">View Task →</a></p>
+                  <p>Regards,<br/>WOS</p>
+                </div>`,
+            }).catch((e) => console.error("task assignment email failed:", e.message));
+          }
+        }
       }
     }
 
