@@ -43,6 +43,13 @@ export const buildAppraisalEmail = (appraisal, employeeName) => {
     )
     .join("");
 
+  const fmtDateOnly = (d) => d ? new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : null;
+  const scoreFrom = fmtDateOnly(appraisal.hrInputs?.scoreFrom);
+  const scoreTo = fmtDateOnly(appraisal.hrInputs?.scoreTo);
+  const scorePeriodLine = (scoreFrom || scoreTo)
+    ? `<p style="margin:4px 0 0;"><strong>Score Period:</strong> ${esc(scoreFrom || "—")} to ${esc(scoreTo || "—")}</p>`
+    : "";
+
   const html = `
   <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1c1b19; max-width: 600px;">
     <p>Dear ${esc(employeeName)},</p>
@@ -50,6 +57,7 @@ export const buildAppraisalEmail = (appraisal, employeeName) => {
     <div style="border: 1px solid #e8e5e0; border-radius: 12px; padding: 16px; margin: 16px 0;">
       <p style="margin: 0;"><strong>Overall Score:</strong> ${score} / 100</p>
       <p style="margin: 4px 0 0;"><strong>Performance Status:</strong> ${esc(appraisal.classification?.label || "—")}</p>
+      ${scorePeriodLine}
     </div>
     ${
       areas.length
@@ -69,12 +77,12 @@ export const buildAppraisalEmail = (appraisal, employeeName) => {
 // Creates the (single) log row for every finalized appraisal whose email is
 // due. Safe to run any number of times: the unique index turns a repeat
 // into a no-op, and emailQueuedAt keeps the scan to new appraisals only.
+// Emails are queued as soon as an appraisal is finalized by HR (no delay).
 export const queueDueEmails = async (now = new Date(), { emailsEnabled = true } = {}) => {
   if (!emailsEnabled) return { queued: 0 };
   const due = await EmployeeAppraisal.find({
     status: "finalized",
     emailQueuedAt: null,
-    periodEnd: { $lte: new Date(now.getTime() - EMAIL_DELAY_AFTER_PERIOD_MS) },
   })
     .select("_id user month")
     .populate("user", "email")

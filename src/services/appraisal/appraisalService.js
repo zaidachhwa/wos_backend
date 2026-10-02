@@ -157,17 +157,28 @@ const validCount = (value, label) => {
   return n;
 };
 
-export const updateHrInputs = async (doc, { leaves, lateMarks, notes }, actor) => {
+export const updateHrInputs = async (doc, { leaves, lateMarks, notes, scoreFrom, scoreTo }, actor) => {
   assertEditable(doc);
   const before = { leaves: doc.hrInputs?.leaves ?? null, lateMarks: doc.hrInputs?.lateMarks ?? null };
   const next = { ...before };
   if (leaves !== undefined) next.leaves = validCount(leaves, "Leaves");
   if (lateMarks !== undefined) next.lateMarks = validCount(lateMarks, "Late marks");
 
+  // Validate optional score period dates
+  const parsedScoreFrom = scoreFrom ? new Date(scoreFrom) : (doc.hrInputs?.scoreFrom ?? null);
+  const parsedScoreTo = scoreTo ? new Date(scoreTo) : (doc.hrInputs?.scoreTo ?? null);
+  if (parsedScoreFrom && isNaN(parsedScoreFrom.getTime())) throw new AppraisalError("scoreFrom must be a valid date");
+  if (parsedScoreTo && isNaN(parsedScoreTo.getTime())) throw new AppraisalError("scoreTo must be a valid date");
+  if (parsedScoreFrom && parsedScoreTo && parsedScoreFrom > parsedScoreTo) {
+    throw new AppraisalError("scoreFrom must be before or equal to scoreTo");
+  }
+
   doc.hrInputs = {
     leaves: next.leaves,
     lateMarks: next.lateMarks,
     notes: notes !== undefined ? String(notes).slice(0, 2000) : doc.hrInputs?.notes || "",
+    scoreFrom: scoreFrom === "" ? null : parsedScoreFrom,
+    scoreTo: scoreTo === "" ? null : parsedScoreTo,
     updatedBy: actor._id,
     updatedAt: new Date(),
   };

@@ -34,28 +34,20 @@ export const upsertFollowUp = async (req, res) => {
 
     followUp.set(type, data);
 
-    // Geofence only bites on a real submit — draft saves (and the check
-    // itself) are skipped entirely until HR configures an office location.
+    // Location constraint removed — submit no longer requires being at the office.
+    // Still record location for audit if provided.
     if (submit === true) {
-      const office = getOfficeLocation();
-      if (office) {
-        if (typeof lat !== "number" || typeof lng !== "number") {
-          return res.status(400).json({
-            success: false,
-            message: "Location is required to submit — enable location access in your browser and try again",
-          });
-        }
-        const distance = distanceMeters(lat, lng, office.lat, office.lng);
-        if (distance > office.radiusMeters) {
-          return res.status(403).json({
-            success: false,
-            message: `You must be at the office to submit — you're ${Math.round(distance)}m away (limit ${office.radiusMeters}m)`,
-          });
-        }
-        followUp.submitLocation = { lat, lng, distanceMeters: Math.round(distance) };
-      }
       followUp.status = "submitted";
       followUp.submittedAt = new Date();
+      if (typeof lat === "number" && typeof lng === "number") {
+        const office = getOfficeLocation();
+        if (office) {
+          const distance = distanceMeters(lat, lng, office.lat, office.lng);
+          followUp.submitLocation = { lat, lng, distanceMeters: Math.round(distance) };
+        } else {
+          followUp.submitLocation = { lat, lng, distanceMeters: null };
+        }
+      }
     }
     await followUp.save();
 

@@ -82,6 +82,10 @@ const employeeAppraisalSchema = new mongoose.Schema(
       leaves: { type: Number, default: null, min: 0 },
       lateMarks: { type: Number, default: null, min: 0 },
       notes: { type: String, default: "" },
+      // Optional score period — lets HR record which date range the
+      // performance scores cover (can be shorter than the full month).
+      scoreFrom: { type: Date, default: null },
+      scoreTo: { type: Date, default: null },
       updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
       updatedAt: { type: Date, default: null },
     },

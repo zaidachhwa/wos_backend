@@ -31,7 +31,7 @@ export const sanitizeAppraisal = (appraisal, user) => {
   delete obj.reopenHistory;
   delete obj.configSnapshot;
   delete obj.missingInputs;
-  if (obj.hrInputs) obj.hrInputs = { leaves: obj.hrInputs.leaves, lateMarks: obj.hrInputs.lateMarks };
+  if (obj.hrInputs) obj.hrInputs = { leaves: obj.hrInputs.leaves, lateMarks: obj.hrInputs.lateMarks, scoreFrom: obj.hrInputs.scoreFrom ?? null, scoreTo: obj.hrInputs.scoreTo ?? null };
   obj.entries = (obj.entries || []).map((e) => ({
     criterionKey: e.criterionKey,
     name: e.name,

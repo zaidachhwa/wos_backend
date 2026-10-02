@@ -92,7 +92,7 @@ const rowOf = (d) => {
     status: d.status,
     totalScore: d.totalScore,
     classification: d.classification,
-    hrInputs: { leaves: d.hrInputs?.leaves ?? null, lateMarks: d.hrInputs?.lateMarks ?? null },
+    hrInputs: { leaves: d.hrInputs?.leaves ?? null, lateMarks: d.hrInputs?.lateMarks ?? null, scoreFrom: d.hrInputs?.scoreFrom ?? null, scoreTo: d.hrInputs?.scoreTo ?? null },
     bugs: d.metricsSnapshot?.bugs?.counted ?? 0,
     bugsTotal: d.metricsSnapshot?.bugs?.total ?? 0,
     manualRated: manual.filter((e) => e.complete).length,
@@ -173,6 +173,8 @@ export const bulkUpdateInputs = async (req, res) => {
         const patch = {};
         if (row.leaves !== undefined) patch.leaves = row.leaves === "" ? null : row.leaves;
         if (row.lateMarks !== undefined) patch.lateMarks = row.lateMarks === "" ? null : row.lateMarks;
+        if (row.scoreFrom !== undefined) patch.scoreFrom = row.scoreFrom;
+        if (row.scoreTo !== undefined) patch.scoreTo = row.scoreTo;
         await updateHrInputs(doc, patch, req.user);
         touched.push(doc);
         results.push({ userId: row.userId, ok: true });
@@ -252,7 +254,22 @@ export const recalculateAppraisal = mutate(async (doc) => {
 export const updateAppraisalHrInputs = mutate((doc, req) => updateHrInputs(doc, req.body || {}, req.user), "HR inputs saved");
 export const updateEvaluation = mutate((doc, req) => setEvaluation(doc, req.params.criterionKey, req.body || {}, req.user), "Evaluation saved");
 export const submit = mutate((doc, req) => submitAppraisal(doc, req.user), "Appraisal submitted");
-export const finalize = mutate((doc, req) => finalizeAppraisal(doc, req.user), "Appraisal finalized");
+export const finalize = async (req, res) => {
+  try {
+    const doc = await loadAppraisal(req.params.id);
+    const result = await finalizeAppraisal(doc, req.user);
+    const fresh = await EmployeeAppraisal.findById(result?._id || doc._id);
+    // Queue and send the email immediately — HR has finalized, employee should be notified now.
+    const settings = await getSettings();
+    queueDueEmails(new Date()).catch((e) => console.error("appraisal email queue failed:", e.message));
+    processEmailQueue(new Date(), { maxAttempts: settings.automation?.maxEmailAttempts || 3 }).catch((e) =>
+      console.error("appraisal email send failed:", e.message)
+    );
+    return res.json({ success: true, message: "Appraisal finalized", data: { appraisal: await detailPayload(fresh, req.user) } });
+  } catch (error) {
+    return handle(res, error);
+  }
+};
 export const reopen = mutate((doc, req) => reopenAppraisal(doc, req.user, req.body?.reason), "Appraisal reopened");
 
 export const finalizeMonth = async (req, res) => {
@@ -273,6 +290,11 @@ export const finalizeMonth = async (req, res) => {
         skipped.push({ id: doc._id, message: error.message });
       }
     }
+    // Queue and send emails for all newly finalized appraisals immediately.
+    queueDueEmails(new Date()).catch((e) => console.error("appraisal email queue failed:", e.message));
+    processEmailQueue(new Date(), { maxAttempts: settings.automation?.maxEmailAttempts || 3 }).catch((e) =>
+      console.error("appraisal email send failed:", e.message)
+    );
     return res.json({ success: true, message: `${finalized} finalized, ${skipped.length} skipped`, data: { finalized, skipped } });
   } catch (error) {
     return handle(res, error);
@@ -355,15 +377,20 @@ export const report = async (req, res) => {
       (a, b) => a.department.name.localeCompare(b.department.name) || (a.user.name || "").localeCompare(b.user.name || "")
     );
 
-    const summary = rows.map((r) => ({
-      employee: r.user.name,
-      email: r.user.email,
-      department: r.department.name,
-      designation: r.user.designation || "",
-      score: roundDisplay(r.totalScore),
-      classification: r.classification?.label || "",
-      status: r.status,
-    }));
+    const summary = rows.map((r) => {
+      const d = byId.get(String(r._id));
+      return {
+        employee: r.user.name,
+        email: r.user.email,
+        department: r.department.name,
+        designation: r.user.designation || "",
+        score: roundDisplay(r.totalScore),
+        classification: r.classification?.label || "",
+        status: r.status,
+        scoreFrom: d?.hrInputs?.scoreFrom ? new Date(d.hrInputs.scoreFrom).toISOString().slice(0, 10) : "",
+        scoreTo: d?.hrInputs?.scoreTo ? new Date(d.hrInputs.scoreTo).toISOString().slice(0, 10) : "",
+      };
+    });
     const criteria = [];
     const automatic = [];
     const hr = [];
@@ -392,7 +419,13 @@ export const report = async (req, res) => {
         bugs: m.bugs?.counted ?? 0,
         clientChanges: m.clientChanges?.total ?? 0,
       });
-      const hrRow = { employee: r.user.name, leaves: r.hrInputs.leaves ?? "", lateMarks: r.hrInputs.lateMarks ?? "" };
+      const hrRow = {
+        employee: r.user.name,
+        leaves: r.hrInputs.leaves ?? "",
+        lateMarks: r.hrInputs.lateMarks ?? "",
+        scoreFrom: d?.hrInputs?.scoreFrom ? new Date(d.hrInputs.scoreFrom).toISOString().slice(0, 10) : "",
+        scoreTo: d?.hrInputs?.scoreTo ? new Date(d.hrInputs.scoreTo).toISOString().slice(0, 10) : "",
+      };
       for (const e of (d.entries || []).filter((x) => x.type === "manual")) hrRow[e.name] = e.ratingLabel || "";
       hr.push(hrRow);
     }
