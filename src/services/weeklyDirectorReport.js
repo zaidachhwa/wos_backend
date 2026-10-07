@@ -3,8 +3,10 @@ import User from "../../models/User.js";
 import BugReport from "../../models/BugReport.js";
 import Project from "../../models/Project.js";
 import Department from "../../models/Department.js";
+import Activity from "../../models/Activity.js";
 import { emailConfigured, sendEmail } from "../resend.js";
 import { istDayStr, istClock } from "../../utils/istTime.js";
+import { pointsForCompletedTask } from "../../utils/points.js";
 
 // ────────────────────────────────────────────────────────────────
 // Weekly Director Report — Tasks, Bugs & Projects per department.
@@ -81,11 +83,82 @@ const buildDeptReport = async (deptId, { from, to, fromStr, toStr }) => {
     }
   }
 
-  return { dept, members, memberMap, byMember, completedTasks, openTasks, bugs, projects };
+  // Leaderboard — points scored by each member in this week
+  const completionActivities = await Activity.find({
+    entityType: "task",
+    "meta.statusTo": "completed",
+    createdAt: { $gte: from, $lte: to },
+  }).select("entityId createdAt").lean();
+
+  // Deduplicate to latest completion activity per task within the window
+  const latestByTask = new Map();
+  for (const a of completionActivities) {
+    const key = String(a.entityId);
+    const existing = latestByTask.get(key);
+    if (!existing || a.createdAt > existing.createdAt) latestByTask.set(key, a);
+  }
+
+  const weekTaskIds = [...latestByTask.keys()];
+  const weekTasks = await Task.find({ _id: { $in: weekTaskIds } })
+    .select("priority assignees bonusPoints deadline endTime project")
+    .lean();
+
+  const projectIds = [...new Set(weekTasks.map((t) => String(t.project)))];
+  const weekProjects = await Project.find({ _id: { $in: projectIds } }).select("weightage").lean();
+  const weightageByProject = new Map(weekProjects.map((p) => [String(p._id), p.weightage || 0]));
+
+  const pointsByMember = new Map();
+  const tasksDoneByMember = new Map();
+  for (const [taskId, activity] of latestByTask) {
+    const task = weekTasks.find((t) => String(t._id) === taskId);
+    if (!task) continue;
+    const pts = pointsForCompletedTask(task, activity.createdAt, weightageByProject.get(String(task.project)));
+    for (const assigneeId of task.assignees) {
+      const id = String(assigneeId);
+      // Only credit members of this department
+      if (!memberMap.has(id)) continue;
+      pointsByMember.set(id, (pointsByMember.get(id) || 0) + pts);
+      tasksDoneByMember.set(id, (tasksDoneByMember.get(id) || 0) + 1);
+    }
+  }
+
+  // Penalty deductions
+  const penaltyActivities = await Activity.find({
+    entityType: "task",
+    action: { $in: ["overdue_penalized", "bug_logged"] },
+    createdAt: { $gte: from, $lte: to },
+  }).select("meta").lean();
+  for (const a of penaltyActivities) {
+    for (const userId of a.meta?.users || []) {
+      if (!memberMap.has(userId)) continue;
+      pointsByMember.set(userId, (pointsByMember.get(userId) || 0) + (a.meta.points || 0));
+    }
+  }
+
+  // Build sorted leaderboard (top 10)
+  const leaderboard = members
+    .map((m) => ({
+      name: m.name,
+      designation: m.designation || m.role,
+      tasksCompleted: tasksDoneByMember.get(String(m._id)) || 0,
+      points: pointsByMember.get(String(m._id)) || 0,
+    }))
+    .sort((a, b) => b.points - a.points || b.tasksCompleted - a.tasksCompleted)
+    .slice(0, 10);
+
+  // Add competition ranks
+  let rank = 0, prevPoints = null;
+  leaderboard.forEach((row, i) => {
+    if (row.points !== prevPoints) rank = i + 1;
+    prevPoints = row.points;
+    row.rank = rank;
+  });
+
+  return { dept, members, memberMap, byMember, completedTasks, openTasks, bugs, projects, leaderboard };
 };
 
 const buildReportHtml = (data, { fromStr, toStr }) => {
-  const { dept, members, memberMap, byMember, completedTasks, openTasks, bugs, projects } = data;
+  const { dept, members, memberMap, byMember, completedTasks, openTasks, bugs, projects, leaderboard } = data;
   const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
   // Member table
@@ -132,6 +205,20 @@ const buildReportHtml = (data, { fromStr, toStr }) => {
         .join("")
     : `<tr><td colspan="3" style="padding:12px;color:#6b7280;text-align:center">No active projects</td></tr>`;
 
+  // Leaderboard rows
+  const MEDALS = ["🥇", "🥈", "🥉"];
+  const leaderboardRows = leaderboard.length
+    ? leaderboard
+        .map((r) => `<tr>
+          <td style="padding:6px 12px;border-bottom:1px solid #e8e5e0;text-align:center;font-size:15px">${MEDALS[r.rank - 1] || r.rank}</td>
+          <td style="padding:6px 12px;border-bottom:1px solid #e8e5e0">${esc(r.name)}</td>
+          <td style="padding:6px 12px;border-bottom:1px solid #e8e5e0;color:#6b7280">${esc(r.designation)}</td>
+          <td style="padding:6px 12px;border-bottom:1px solid #e8e5e0;text-align:center">${r.tasksCompleted}</td>
+          <td style="padding:6px 12px;border-bottom:1px solid #e8e5e0;text-align:center;color:#4f46e5"><strong>${r.points}</strong></td>
+        </tr>`)
+        .join("")
+    : `<tr><td colspan="5" style="padding:12px;color:#6b7280;text-align:center">No tasks completed this week</td></tr>`;
+
   const table = (headers, rows) => `
     <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:8px">
       <thead>
@@ -151,6 +238,9 @@ const buildReportHtml = (data, { fromStr, toStr }) => {
   <h3 style="margin-bottom:4px">👥 Team Task Summary</h3>
   ${table(["Member", "Designation", "Tasks Done", "Open", "Blocked"], memberRows)}
 
+  <h3 style="margin:24px 0 4px">🏆 Weekly Leaderboard (Top 10)</h3>
+  ${table(["Rank", "Name", "Designation", "Tasks Completed", "Points"], leaderboardRows)}
+
   <h3 style="margin:24px 0 4px">🐛 Bugs This Week (${bugs.length})</h3>
   ${table(["Title", "Employee", "Severity", "Status"], bugRows)}
 
@@ -162,6 +252,9 @@ const buildReportHtml = (data, { fromStr, toStr }) => {
   </p>
 </div>`;
 };
+
+// Fixed recipient that receives a copy of every department's weekly report.
+const REPORT_CC_EMAIL = "mohammedjagda601@gmail.com";
 
 // Main entry point — called by server.js's scheduler on Mondays
 export const sendWeeklyDirectorReports = async (now = new Date()) => {
@@ -182,11 +275,14 @@ export const sendWeeklyDirectorReports = async (now = new Date()) => {
       const data = await buildDeptReport(director.department, range);
       if (!data) continue;
       const html = buildReportHtml(data, range);
-      await sendEmail({
-        to: director.email,
-        subject: `Weekly Report: ${data.dept.name} — ${range.fromStr} to ${range.toStr}`,
-        html,
-      });
+      const subject = `Weekly Report: ${data.dept.name} — ${range.fromStr} to ${range.toStr}`;
+
+      // Send to the department's director
+      await sendEmail({ to: director.email, subject, html });
+
+      // Also send a copy to the fixed oversight address
+      await sendEmail({ to: REPORT_CC_EMAIL, subject, html });
+
       sent++;
     } catch (e) {
       errors.push({ director: director.email, error: e.message });

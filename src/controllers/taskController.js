@@ -12,6 +12,7 @@ import { maxBonusFor } from "../utils/points.js";
 import { getPenalties } from "../utils/pointsConfig.js";
 import { computeStatusDurations } from "../utils/statusDurations.js";
 import { getManagedUserIds } from "../utils/departmentScope.js";
+import { istDayStr } from "../utils/istTime.js";
 
 const SUBLEAD_PLUS = ["admin", "manager", "subadmin", "sublead"];
 // Deliberately excludes subadmin: unlike task-editing (SUBLEAD_PLUS), comment
@@ -112,6 +113,23 @@ export const createTask = async (req, res) => {
     // stays a sublead+ privilege — and it sits behind manager/admin approval
     // before it's "real" work.
     const isMember = req.user.role === "member";
+
+    // Daily task creation limit — no one may create more than 2 tasks on the
+    // same IST calendar day. Admins are exempt (they manage the system).
+    if (req.user.role !== "admin") {
+      const todayStart = new Date(`${istDayStr(new Date())}T00:00:00+05:30`);
+      const todayEnd   = new Date(`${istDayStr(new Date())}T23:59:59.999+05:30`);
+      const todayCount = await Task.countDocuments({
+        createdBy: req.user._id,
+        createdAt: { $gte: todayStart, $lte: todayEnd },
+      });
+      if (todayCount >= 2) {
+        return res.status(429).json({
+          success: false,
+          message: "Daily limit reached: you can only create 2 tasks per day",
+        });
+      }
+    }
 
 
     const task = await Task.create({
