@@ -113,19 +113,6 @@ export const createTask = async (req, res) => {
     // before it's "real" work.
     const isMember = req.user.role === "member";
 
-    // Director can only assign tasks to HR users — this is the enforcement
-    // point: the frontend filters the picker, the backend validates the data.
-    if (req.user.role === "director") {
-      const assigneeIds = assignees || [];
-      if (assigneeIds.length === 0) {
-        return res.status(400).json({ success: false, message: "Director must assign the task to at least one HR user" });
-      }
-      const assigneeUsers = await User.find({ _id: { $in: assigneeIds } }).select("role");
-      const nonHr = assigneeUsers.filter((u) => u.role !== "hr");
-      if (nonHr.length > 0) {
-        return res.status(403).json({ success: false, message: "Director can only assign tasks to HR users" });
-      }
-    }
 
     const task = await Task.create({
       project: project._id,
