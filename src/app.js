@@ -25,6 +25,7 @@ import attendanceRoutes from "./routes/attendanceRoutes.js";
 import analyticsRoutes from "./routes/analyticsRoutes.js";
 import appraisalsRoutes from "./routes/appraisalsRoutes.js";
 import bugRoutes from "./routes/bugRoutes.js";
+import generalTaskRoutes from "./routes/generalTaskRoutes.js";
 
 const app = express();
 
@@ -52,6 +53,7 @@ app.use("/api/leaderboard", leaderboardRoutes);
 app.use("/api/appraisal", appraisalRoutes);
 app.use("/api/appraisals", appraisalsRoutes);
 app.use("/api/bugs", bugRoutes);
+app.use("/api/general-tasks", generalTaskRoutes);
 app.use("/api/attendance", attendanceRoutes);
 app.use("/api/department-violations", departmentViolationRoutes);
 app.use("/api/analytics", analyticsRoutes);

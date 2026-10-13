@@ -44,6 +44,7 @@ export const NOTIFICATION_TYPES = [
   // notification documents of this type still validate on save.
   "performance_memo",
   "appraisal_update",
+  "general_task",
 ];
 
 export const ACTIVITY_ENTITY_TYPES = ["project", "module", "task", "followup", "timeblock", "user"];

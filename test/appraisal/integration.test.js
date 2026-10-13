@@ -61,7 +61,19 @@ const rateAll = async (appraisalId, ratingKey = "excellent") => {
 
 const appraisalFor = (who) => EmployeeAppraisal.findOne({ user: users[who]._id, month: MONTH });
 
+// One fake mail transport for the whole suite: finalize now sends the
+// employee email in the background, so every send (explicit or background)
+// must go through it. mailProviderDown simulates an outage.
+const sentMails = [];
+let mailProviderDown = false;
+const fakeSender = async (msg) => {
+  if (mailProviderDown) throw new Error("provider down");
+  sentMails.push(msg);
+  return { id: `msg-${sentMails.length}` };
+};
+
 before(async () => {
+  setEmailSender(fakeSender);
   await mongoose.connect(TEST_URI);
   assert.match(mongoose.connection.name, /test/, "refusing to run against a non-test database");
   await mongoose.connection.dropDatabase();
@@ -100,6 +112,7 @@ before(async () => {
 });
 
 after(async () => {
+  setEmailSender(null);
   await new Promise((resolve) => server?.close(resolve));
   if (mongoose.connection.name?.includes("test")) await mongoose.connection.dropDatabase();
   await mongoose.disconnect();
@@ -370,23 +383,20 @@ describe("monthly emails", () => {
   });
 
   test("each finalized appraisal is emailed exactly once, even if the job runs twice", async () => {
-    const sent = [];
-    const sender = async (msg) => {
-      sent.push(msg);
-      return { id: `msg-${sent.length}` };
-    };
+    // Explicit runs and the background sends finalize triggers all deliver
+    // through the same fake transport, so `sentMails` sees every send.
     const now = new Date(Math.max(Date.now(), PERIOD.emailDueAt.getTime()));
     await Promise.all([queueDueEmails(now), queueDueEmails(now)]);
-    await Promise.all([processEmailQueue(now, { sender }), processEmailQueue(now, { sender })]);
+    await Promise.all([processEmailQueue(now, { sender: fakeSender }), processEmailQueue(now, { sender: fakeSender })]);
     await queueDueEmails(now);
-    await processEmailQueue(now, { sender });
+    await processEmailQueue(now, { sender: fakeSender });
 
     const johnId = String(users.john._id);
     const logs = await AppraisalEmailLog.find({ user: johnId, month: MONTH });
     assert.equal(logs.length, 1);
-    assert.equal(logs[0].status, "sent");
-    assert.equal(sent.filter((m) => m.to === "john@test.local").length, 1);
-    const mail = sent.find((m) => m.to === "john@test.local");
+    assert.equal(logs[0].status, "sent", `email not sent: ${logs[0].lastError}`);
+    assert.equal(sentMails.filter((m) => m.to === "john@test.local").length, 1);
+    const mail = sentMails.find((m) => m.to === "john@test.local");
     assert.match(mail.subject, /^Monthly Performance Appraisal – /);
     assert.match(mail.html, /Overall Score:/);
   });
@@ -395,35 +405,33 @@ describe("monthly emails", () => {
     const sara = await appraisalFor("sara");
     await call(() => api.patch("/appraisals/inputs", { month: MONTH, rows: [{ userId: users.sara._id, leaves: 1, lateMarks: 0 }] }, as("hr")));
     await rateAll(sara._id, "poor");
-    assert.equal((await call(() => api.post(`/appraisals/${sara._id}/finalize`, {}, as("hr")))).status, 200);
 
-    let now = new Date(Math.max(Date.now(), PERIOD.emailDueAt.getTime()));
-    const failing = async () => {
-      throw new Error("provider down");
-    };
-    await queueDueEmails(now);
-    for (let i = 0; i < 5; i += 1) {
-      await processEmailQueue(now, { sender: failing, maxAttempts: 3 });
-      now = new Date(now.getTime() + 3 * 60 * 60 * 1000); // past every backoff
-    }
-    let log = await AppraisalEmailLog.findOne({ appraisal: sara._id });
-    assert.equal(log.status, "failed");
-    assert.equal(log.attempts, 3);
-    assert.match(log.lastError, /provider down/);
-    assert.ok(await AppraisalAuditLog.exists({ action: "email_failed", entityId: log._id }));
-
-    setEmailSender(async () => ({ id: "ok" }));
+    mailProviderDown = true; // the provider is down from finalization onwards
+    let log;
     try {
-      const r = await call(() => api.post(`/appraisals/emails/${log._id}/retry`, {}, as("hr")));
-      assert.equal(r.status, 200);
-      // The endpoint processes the queue in the background — wait for it.
-      for (let i = 0; i < 40; i += 1) {
-        log = await AppraisalEmailLog.findOne({ appraisal: sara._id });
-        if (log.status === "sent") break;
-        await new Promise((resolve) => setTimeout(resolve, 50));
+      assert.equal((await call(() => api.post(`/appraisals/${sara._id}/finalize`, {}, as("hr")))).status, 200);
+      let now = new Date(Math.max(Date.now(), PERIOD.emailDueAt.getTime()));
+      await queueDueEmails(now);
+      for (let i = 0; i < 5; i += 1) {
+        await processEmailQueue(now, { sender: fakeSender, maxAttempts: 3 });
+        now = new Date(now.getTime() + 3 * 60 * 60 * 1000); // past every backoff
       }
+      log = await AppraisalEmailLog.findOne({ appraisal: sara._id });
+      assert.equal(log.status, "failed");
+      assert.equal(log.attempts, 3);
+      assert.match(log.lastError, /provider down/);
+      assert.ok(await AppraisalAuditLog.exists({ action: "email_failed", entityId: log._id }));
     } finally {
-      setEmailSender(null);
+      mailProviderDown = false;
+    }
+
+    const r = await call(() => api.post(`/appraisals/emails/${log._id}/retry`, {}, as("hr")));
+    assert.equal(r.status, 200);
+    // The endpoint processes the queue in the background — wait for it.
+    for (let i = 0; i < 40; i += 1) {
+      log = await AppraisalEmailLog.findOne({ appraisal: sara._id });
+      if (log.status === "sent") break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
     }
     assert.equal(log.status, "sent");
     assert.ok(await AppraisalAuditLog.exists({ action: "email_retried", entityId: log._id }));
