@@ -157,6 +157,24 @@ const validCount = (value, label) => {
   return n;
 };
 
+// Parse a date-only string ("YYYY-MM-DD") as IST noon so that UTC storage
+// and ISO serialization both round-trip to the same calendar date.
+// Without this, new Date("2026-10-01") = 2026-09-30T18:30Z in UTC,
+// which serialises back as 2026-09-30 — one day early.
+const parseIstDate = (s) => {
+  if (!s) return null;
+  // If it's already a Date or non-string, return as-is.
+  if (typeof s !== "string") return new Date(s);
+  // "YYYY-MM-DD" → treat as IST noon (UTC 06:30) so .toISOString() stays same day.
+  const match = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) {
+    const [, y, m, d] = match.map(Number);
+    // IST noon = UTC 06:30
+    return new Date(Date.UTC(y, m - 1, d, 6, 30));
+  }
+  return new Date(s);
+};
+
 export const updateHrInputs = async (doc, { leaves, lateMarks, notes, scoreFrom, scoreTo }, actor) => {
   assertEditable(doc);
   const before = { leaves: doc.hrInputs?.leaves ?? null, lateMarks: doc.hrInputs?.lateMarks ?? null };
@@ -165,12 +183,21 @@ export const updateHrInputs = async (doc, { leaves, lateMarks, notes, scoreFrom,
   if (lateMarks !== undefined) next.lateMarks = validCount(lateMarks, "Late marks");
 
   // Validate optional score period dates
-  const parsedScoreFrom = scoreFrom ? new Date(scoreFrom) : (doc.hrInputs?.scoreFrom ?? null);
-  const parsedScoreTo = scoreTo ? new Date(scoreTo) : (doc.hrInputs?.scoreTo ?? null);
+  const parsedScoreFrom = scoreFrom ? parseIstDate(scoreFrom) : (doc.hrInputs?.scoreFrom ?? null);
+  const parsedScoreTo = scoreTo ? parseIstDate(scoreTo) : (doc.hrInputs?.scoreTo ?? null);
   if (parsedScoreFrom && isNaN(parsedScoreFrom.getTime())) throw new AppraisalError("scoreFrom must be a valid date");
   if (parsedScoreTo && isNaN(parsedScoreTo.getTime())) throw new AppraisalError("scoreTo must be a valid date");
   if (parsedScoreFrom && parsedScoreTo && parsedScoreFrom > parsedScoreTo) {
     throw new AppraisalError("scoreFrom must be before or equal to scoreTo");
+  }
+  if (doc.month) {
+    const period = monthPeriod(doc.month);
+    if (parsedScoreFrom && (parsedScoreFrom < period.startAt || parsedScoreFrom > period.endAt)) {
+      throw new AppraisalError(`scoreFrom must fall within ${doc.month}`);
+    }
+    if (parsedScoreTo && (parsedScoreTo < period.startAt || parsedScoreTo > period.endAt)) {
+      throw new AppraisalError(`scoreTo must fall within ${doc.month}`);
+    }
   }
 
   doc.hrInputs = {

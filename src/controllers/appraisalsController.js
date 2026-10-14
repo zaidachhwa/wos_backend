@@ -67,7 +67,7 @@ const loadMonthRoster = async (month, { now = new Date() } = {}) => {
   const stale = docs.filter((d) => d.status !== "finalized" && (!d.calculatedAt || now - d.calculatedAt > STALE_MS));
   if (stale.length) await recalculate(stale, { now, settings });
   await EmployeeAppraisal.populate(docs, [
-    { path: "user", select: USER_FIELDS, populate: { path: "department", select: "name" } },
+    { path: "user", select: USER_FIELDS, populate: [{ path: "department", select: "name" }, { path: "team", select: "name" }] },
   ]);
   return { docs, settings };
 };
@@ -90,6 +90,9 @@ const rowOf = (d) => {
     department: finalized
       ? { _id: d.employeeSnapshot?.departmentId || null, name: d.employeeSnapshot?.departmentName || "Unassigned" }
       : { _id: u.department?._id || null, name: u.department?.name || "Unassigned" },
+    team: finalized
+      ? { _id: null, name: d.employeeSnapshot?.teamName || null }
+      : { _id: u.team?._id || null, name: u.team?.name || null },
     status: d.status,
     totalScore: d.totalScore,
     classification: d.classification,
@@ -108,6 +111,7 @@ const applyFilters = (rows, q) => {
   const search = String(q.search || "").trim().toLowerCase();
   return rows.filter((r) => {
     if (q.department === "unassigned" ? r.department._id : q.department && String(r.department._id) !== q.department) return false;
+    if (q.team && String(r.team?._id || "") !== q.team) return false;
     if (q.designation && (r.user.designation || "").toLowerCase() !== String(q.designation).toLowerCase()) return false;
     if (q.employee && String(r.user._id) !== q.employee) return false;
     if (q.classification && r.classification?.key !== q.classification) return false;
@@ -382,6 +386,15 @@ export const teamAppraisals = async (req, res) => {
 
 // ------------------------------------------------------------------ reports
 
+// Formats a Date stored in UTC back to a YYYY-MM-DD string in IST (UTC+5:30).
+// Using .toISOString() would give the UTC date, which is one day behind for
+// dates entered by IST users (e.g., 2026-10-01 stored as 2026-09-30T18:30Z).
+const fmtDateIst = (d) => {
+  if (!d) return "";
+  const ist = new Date(new Date(d).getTime() + 5.5 * 60 * 60 * 1000);
+  return ist.toISOString().slice(0, 10);
+};
+
 export const report = async (req, res) => {
   try {
     const month = monthParam(req.query.month);
@@ -391,18 +404,24 @@ export const report = async (req, res) => {
       (a, b) => a.department.name.localeCompare(b.department.name) || (a.user.name || "").localeCompare(b.user.name || "")
     );
 
+    const period = monthPeriod(month);
     const summary = rows.map((r) => {
       const d = byId.get(String(r._id));
+      const rawFrom = fmtDateIst(d?.hrInputs?.scoreFrom);
+      const rawTo = fmtDateIst(d?.hrInputs?.scoreTo);
+      const scoreFrom = rawFrom && rawFrom.startsWith(month) ? rawFrom : period.dayStart;
+      const scoreTo = rawTo && rawTo.startsWith(month) ? rawTo : period.dayEnd;
       return {
         employee: r.user.name,
         email: r.user.email,
         department: r.department.name,
+        team: r.team?.name || "",
         designation: r.user.designation || "",
         score: roundDisplay(r.totalScore),
         classification: r.classification?.label || "",
         status: r.status,
-        scoreFrom: d?.hrInputs?.scoreFrom ? new Date(d.hrInputs.scoreFrom).toISOString().slice(0, 10) : "",
-        scoreTo: d?.hrInputs?.scoreTo ? new Date(d.hrInputs.scoreTo).toISOString().slice(0, 10) : "",
+        scoreFrom,
+        scoreTo,
       };
     });
     const criteria = [];
@@ -433,12 +452,16 @@ export const report = async (req, res) => {
         bugs: m.bugs?.counted ?? 0,
         clientChanges: m.clientChanges?.total ?? 0,
       });
+      const rawFrom = fmtDateIst(d?.hrInputs?.scoreFrom);
+      const rawTo = fmtDateIst(d?.hrInputs?.scoreTo);
+      const scoreFrom = rawFrom && rawFrom.startsWith(month) ? rawFrom : period.dayStart;
+      const scoreTo = rawTo && rawTo.startsWith(month) ? rawTo : period.dayEnd;
       const hrRow = {
         employee: r.user.name,
         leaves: r.hrInputs.leaves ?? "",
         lateMarks: r.hrInputs.lateMarks ?? "",
-        scoreFrom: d?.hrInputs?.scoreFrom ? new Date(d.hrInputs.scoreFrom).toISOString().slice(0, 10) : "",
-        scoreTo: d?.hrInputs?.scoreTo ? new Date(d.hrInputs.scoreTo).toISOString().slice(0, 10) : "",
+        scoreFrom,
+        scoreTo,
       };
       for (const e of (d.entries || []).filter((x) => x.type === "manual")) hrRow[e.name] = e.ratingLabel || "";
       hr.push(hrRow);
@@ -462,7 +485,7 @@ export const report = async (req, res) => {
 
     if (req.query.format === "csv") {
       const cell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-      const header = ["Employee", "Email", "Department", "Designation", "Overall Score", "Classification", "Status"];
+      const header = ["Employee", "Email", "Department", "Team", "Designation", "Overall Score", "Classification", "Status", "Score From", "Score To"];
       const csv = [header.join(","), ...summary.map((s) => Object.values(s).map(cell).join(","))].join("\n");
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", `attachment; filename="appraisal-report-${month}.csv"`);
