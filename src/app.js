@@ -26,6 +26,7 @@ import analyticsRoutes from "./routes/analyticsRoutes.js";
 import appraisalsRoutes from "./routes/appraisalsRoutes.js";
 import bugRoutes from "./routes/bugRoutes.js";
 import generalTaskRoutes from "./routes/generalTaskRoutes.js";
+import roleRoutes from "./routes/roleRoutes.js";
 
 const app = express();
 
@@ -35,6 +36,7 @@ app.use(cookieParser());
 
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/roles", roleRoutes);
 app.use("/api/departments", departmentRouter);
 app.use("/api/teams", teamRouter);
 app.use("/api/projects", projectRoutes);

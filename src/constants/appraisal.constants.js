@@ -7,6 +7,10 @@ export const APPRAISAL_TIMEZONE = "Asia/Kolkata";
 
 export const CRITERION_TYPES = ["automatic", "manual", "hybrid"];
 
+export const EVALUATION_FREQUENCIES = ["daily", "weekly", "biweekly", "monthly"];
+
+export const PERFORMANCE_RATINGS = ["poor", "average", "good"];
+
 // How a criterion turns its metric into a 0–100% performance:
 //   ratio      metric is already a 0..1 ratio (e.g. completion rate)
 //   target     metric / params.target, capped at 100%
@@ -85,4 +89,8 @@ export const AUDIT_ACTIONS = [
   "email_sent",
   "email_failed",
   "email_retried",
+  "performance_evaluation_recorded",
+  "performance_evaluation_updated",
+  "performance_evaluation_deleted",
+  "scoring_scale_changed",
 ];

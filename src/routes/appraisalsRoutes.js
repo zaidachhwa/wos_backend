@@ -8,7 +8,15 @@ import {
   reorderCriteria,
   deleteCriterion,
   updateSettings,
+  listPositions,
 } from "../controllers/appraisalSettingsController.js";
+import {
+  recordPerformanceEvaluation,
+  getPerformanceEvaluations,
+  getMonthlyPerformanceBreakdown,
+  deletePerformanceEvaluation,
+  getEvaluatableEmployees,
+} from "../controllers/performanceEvalController.js";
 import {
   listAppraisals,
   bulkUpdateInputs,
@@ -53,12 +61,20 @@ router.get("/employee/:userId/history", employeeHistory);
 
 // Configuration
 router.get("/config", viewAll, getConfig);
+router.get("/positions", viewAll, listPositions);
 router.post("/criteria", manage, createCriterion);
 router.put("/criteria/allocation", manage, updateAllocation);
 router.patch("/criteria/reorder", manage, reorderCriteria);
 router.patch("/criteria/:id", manage, updateCriterion);
 router.delete("/criteria/:id", manage, deleteCriterion);
 router.patch("/settings", manage, updateSettings);
+
+// Multi-frequency Performance Evaluations
+router.get("/performance/evaluatable-employees", getEvaluatableEmployees);
+router.post("/performance/evaluations", recordPerformanceEvaluation);
+router.get("/performance/evaluations", getPerformanceEvaluations);
+router.delete("/performance/evaluations/:id", deletePerformanceEvaluation);
+router.get("/performance/monthly/:employeeId", getMonthlyPerformanceBreakdown);
 
 // Month roster, inputs, reports
 router.get("/", viewAll, listAppraisals);

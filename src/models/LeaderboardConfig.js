@@ -13,6 +13,7 @@ const leaderboardConfigSchema = new mongoose.Schema(
       overdue: { type: Number, required: true },
       bug: { type: Number, required: true },
     },
+    bugReporterBonus: { type: Number, default: 2 },
   },
   { timestamps: true }
 );

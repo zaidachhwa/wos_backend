@@ -5,11 +5,36 @@ import FollowUp from "../models/FollowUp.js";
 import Activity from "../models/Activity.js";
 import Team from "../models/Team.js";
 import User from "../models/User.js";
+import GeneralTask from "../models/GeneralTask.js";
+import { assignmentStatus } from "./generalTaskController.js";
 import { visibilityFilter } from "./projectController.js";
 import { getManagedUserIds } from "../utils/departmentScope.js";
 import { computeProjectProgress } from "../utils/progress.js";
 import { localDay } from "./notificationController.js";
 import { isTaskOverdue } from "../utils/taskDates.js";
+
+const getAssignedGeneralTasks = async (userId, now = new Date()) => {
+  const tasks = await GeneralTask.find({ "assignments.user": userId })
+    .populate("createdBy", "name role")
+    .sort({ dueAt: 1 })
+    .limit(20)
+    .lean();
+  return tasks
+    .map((t) => {
+      const mine = (t.assignments || []).find((a) => String(a.user) === String(userId));
+      const status = assignmentStatus(t.dueAt, mine?.completedAt, now);
+      return {
+        _id: t._id,
+        title: t.title,
+        description: t.description || "",
+        dueAt: t.dueAt,
+        createdBy: t.createdBy,
+        status,
+        completedAt: mine?.completedAt || null,
+      };
+    })
+    .filter((t) => t.status !== "completed" || (t.completedAt && (now - new Date(t.completedAt)) < 24 * 3600 * 1000));
+};
 
 const dayBounds = (d) => {
   const start = new Date(d);
@@ -19,8 +44,9 @@ const dayBounds = (d) => {
   return { start, end };
 };
 
-const adminDashboard = async () => {
-  const [statusCounts, activeUsers, managers, teams, teamCounts, recentActivity] = await Promise.all([
+const adminDashboard = async (user) => {
+  const now = new Date();
+  const [statusCounts, activeUsers, managers, teams, teamCounts, recentActivity, rawGeneralTasks, myGeneralTasks] = await Promise.all([
     Project.aggregate([{ $group: { _id: "$status", count: { $sum: 1 } } }]),
     User.countDocuments({ isActive: true }),
     User.countDocuments({ role: "manager", isActive: true }),
@@ -30,15 +56,38 @@ const adminDashboard = async () => {
       { $group: { _id: "$team", count: { $sum: 1 } } },
     ]),
     Activity.find().sort("-createdAt").limit(10).populate("actor", "name role"),
+    GeneralTask.find().populate("createdBy", "name role").sort({ dueAt: -1 }).limit(10).lean(),
+    user?._id ? getAssignedGeneralTasks(user._id, now) : Promise.resolve([]),
   ]);
 
   const projectsByStatus = Object.fromEntries(statusCounts.map((s) => [s._id, s.count]));
   const countByTeam = new Map(teamCounts.map((t) => [String(t._id), t.count]));
 
+  const generalTasksOverview = rawGeneralTasks.map((t) => {
+    const assignments = (t.assignments || []).map((a) => ({
+      ...a,
+      status: assignmentStatus(t.dueAt, a.completedAt, now),
+    }));
+    return {
+      _id: t._id,
+      title: t.title,
+      dueAt: t.dueAt,
+      createdBy: t.createdBy,
+      stats: {
+        total: assignments.length,
+        completed: assignments.filter((a) => a.status === "completed" || a.status === "delayed").length,
+        overdue: assignments.filter((a) => a.status === "overdue").length,
+        pending: assignments.filter((a) => a.status === "pending").length,
+      },
+    };
+  });
+
   return {
-    totals: { projectsByStatus, activeUsers, managers },
+    totals: { projectsByStatus, activeUsers, managers, generalTasks: rawGeneralTasks.length },
     teams: teams.map((t) => ({ name: t.name, memberCount: countByTeam.get(String(t._id)) || 0 })),
     recentActivity,
+    generalTasks: myGeneralTasks,
+    generalTasksOverview,
   };
 };
 
@@ -120,6 +169,8 @@ const managerLikeDashboard = async (user) => {
     };
   });
 
+  const generalTasks = await getAssignedGeneralTasks(user._id, now);
+
   return {
     todaySchedule,
     pendingFollowUps: { morning: buildPending(morningFollowUps), evening: buildPending(eveningFollowUps) },
@@ -129,6 +180,7 @@ const managerLikeDashboard = async (user) => {
     delayedProjects,
     workload,
     recentActivity,
+    generalTasks,
   };
 };
 
@@ -138,31 +190,40 @@ const memberDashboard = async (user) => {
   const { start, end } = dayBounds(now);
   const today = localDay(now);
 
-  const [todayTasks, yesterdayTasks, upcomingDeadlines, todaySchedule, followUps, projectDocs, recentActivity] =
-    await Promise.all([
-      Task.find({
-        assignees: user._id,
-        status: { $ne: "completed" },
-        assignedDate: { $gte: start, $lte: end },
-      }).populate("assignees", "name role designation"),
-      Task.find({
-        assignees: user._id,
-        status: { $ne: "completed" },
-        assignedDate: { $lt: start },
-      })
-        .populate("assignees", "name role designation")
-        .sort("assignedDate"),
-      Task.find({ assignees: user._id, deadline: { $gte: now, $lte: in7d }, status: { $ne: "completed" } }).sort(
-        "deadline"
-      ),
-      TimeBlock.find({ user: user._id, start: { $gte: start, $lte: end } }).sort("start"),
-      FollowUp.find({ user: user._id, date: today, type: { $in: ["morning", "evening"] } }),
-      Project.find(await visibilityFilter(user))
-        .populate("manager", "name role designation")
-        .sort("-createdAt")
-        .lean(),
-      Activity.find({ actor: user._id }).sort("-createdAt").limit(10).populate("actor", "name role"),
-    ]);
+  const [
+    todayTasks,
+    yesterdayTasks,
+    upcomingDeadlines,
+    todaySchedule,
+    followUps,
+    projectDocs,
+    recentActivity,
+    generalTasks,
+  ] = await Promise.all([
+    Task.find({
+      assignees: user._id,
+      status: { $ne: "completed" },
+      assignedDate: { $gte: start, $lte: end },
+    }).populate("assignees", "name role designation"),
+    Task.find({
+      assignees: user._id,
+      status: { $ne: "completed" },
+      assignedDate: { $lt: start },
+    })
+      .populate("assignees", "name role designation")
+      .sort("assignedDate"),
+    Task.find({ assignees: user._id, deadline: { $gte: now, $lte: in7d }, status: { $ne: "completed" } }).sort(
+      "deadline"
+    ),
+    TimeBlock.find({ user: user._id, start: { $gte: start, $lte: end } }).sort("start"),
+    FollowUp.find({ user: user._id, date: today, type: { $in: ["morning", "evening"] } }),
+    Project.find(await visibilityFilter(user))
+      .populate("manager", "name role designation")
+      .sort("-createdAt")
+      .lean(),
+    Activity.find({ actor: user._id }).sort("-createdAt").limit(10).populate("actor", "name role"),
+    getAssignedGeneralTasks(user._id, now),
+  ]);
 
   // draft counts as "missing" — followUpStatus only exposes submitted|missing|reviewed.
   const statusFor = (type) => {
@@ -182,15 +243,16 @@ const memberDashboard = async (user) => {
     followUpStatus: { morning: statusFor("morning"), evening: statusFor("evening") },
     projects,
     recentActivity,
+    generalTasks,
   };
 };
 
 export const getDashboard = async (req, res) => {
   try {
     let data;
-    if (req.user.role === "admin") data = await adminDashboard();
+    if (req.user.role === "admin") data = await adminDashboard(req.user);
     else if (req.user.role === "member") data = await memberDashboard(req.user);
-    else data = await managerLikeDashboard(req.user); // manager, sublead
+    else data = await managerLikeDashboard(req.user); // manager, sublead, director, hr
     return res.json({ success: true, message: "Dashboard fetched", data });
   } catch (error) {
     console.error(error);

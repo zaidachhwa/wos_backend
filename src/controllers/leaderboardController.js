@@ -3,7 +3,14 @@ import Task from "../models/Task.js";
 import User from "../models/User.js";
 import Project from "../models/Project.js";
 import { pointsForCompletedTask } from "../utils/points.js";
-import { getPointsByPriority, setPointsByPriority, getPenalties, setPenalties } from "../utils/pointsConfig.js";
+import {
+  getPointsByPriority,
+  setPointsByPriority,
+  getPenalties,
+  setPenalties,
+  getBugReporterBonus,
+  setBugReporterBonus,
+} from "../utils/pointsConfig.js";
 import { resolveDepartmentScope } from "../utils/departmentScope.js";
 import { applyOverduePenalties } from "../services/overdueSweep.js";
 import { istDayStr, istClock } from "../utils/istTime.js";
@@ -128,7 +135,7 @@ export const getLeaderboard = async (req, res) => {
 
     const penaltyActivities = await Activity.find({
       entityType: "task",
-      action: { $in: ["overdue_penalized", "bug_logged"] },
+      action: { $in: ["overdue_penalized", "bug_logged", "bug_reported"] },
       createdAt: { $gte: weekStart, $lte: weekEnd },
     }).select("meta");
 
@@ -199,7 +206,11 @@ export const getPointsConfig = async (req, res) => {
   return res.json({
     success: true,
     message: "Points config fetched",
-    data: { pointsByPriority: getPointsByPriority(), penalties: getPenalties() },
+    data: {
+      pointsByPriority: getPointsByPriority(),
+      penalties: getPenalties(),
+      bugReporterBonus: getBugReporterBonus(),
+    },
   });
 };
 
@@ -225,21 +236,29 @@ export const runOverdueSweep = async (req, res) => {
 
 export const updatePointsConfig = async (req, res) => {
   try {
-    const { pointsByPriority, penalties } = req.body;
+    const { pointsByPriority, penalties, bugReporterBonus } = req.body;
     const pointsError =
       pointsByPriority && validateNonNegative(pointsByPriority, ["low", "medium", "high"], "pointsByPriority");
     if (pointsError) return res.status(400).json({ success: false, message: pointsError });
     const penaltiesError =
       penalties && validateNonNegative(penalties, ["completedLate", "overdue", "bug"], "penalties");
     if (penaltiesError) return res.status(400).json({ success: false, message: penaltiesError });
+    if (
+      bugReporterBonus !== undefined &&
+      (typeof bugReporterBonus !== "number" || !Number.isFinite(bugReporterBonus) || bugReporterBonus < 0)
+    ) {
+      return res.status(400).json({ success: false, message: "bugReporterBonus must be a non-negative number" });
+    }
 
     const updatedPoints = pointsByPriority ? await setPointsByPriority(pointsByPriority) : getPointsByPriority();
     const updatedPenalties = penalties ? await setPenalties(penalties) : getPenalties();
+    const updatedBonus =
+      bugReporterBonus !== undefined ? await setBugReporterBonus(bugReporterBonus) : getBugReporterBonus();
 
     return res.json({
       success: true,
       message: "Points config updated",
-      data: { pointsByPriority: updatedPoints, penalties: updatedPenalties },
+      data: { pointsByPriority: updatedPoints, penalties: updatedPenalties, bugReporterBonus: updatedBonus },
     });
   } catch (error) {
     console.error(error);

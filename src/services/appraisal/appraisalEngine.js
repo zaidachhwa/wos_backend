@@ -1,4 +1,4 @@
-import { CRITERION_TYPES, METRICS, SCORING_METHODS } from "../../constants/appraisal.constants.js";
+import { CRITERION_TYPES, METRICS, SCORING_METHODS, EVALUATION_FREQUENCIES } from "../../constants/appraisal.constants.js";
 import { clamp, roundDisplay, roundStore, roundTo, toHundredths } from "./appraisalMath.js";
 
 // The centralized, configuration-driven appraisal calculator. Pure: no DB,
@@ -300,7 +300,9 @@ export const computeAppraisal = ({ criteria, settings, metrics, evaluations = []
 // ---------------------------------------------------------------- validation
 
 export const validateWeightage = (activeCriteria) => {
-  const hundredths = activeCriteria.reduce((sum, c) => sum + toHundredths(c.weightage), 0);
+  // Only top-level criteria sum to 100%
+  const topLevel = activeCriteria.filter((c) => !c.parentCriterion);
+  const hundredths = topLevel.reduce((sum, c) => sum + toHundredths(c.weightage), 0);
   const total = hundredths / 100;
   if (hundredths < 10000) {
     return { valid: false, total, message: `Active criteria weightage totals ${total}% — it must be exactly 100% (${roundDisplay(100 - total)}% short).` };
@@ -311,6 +313,19 @@ export const validateWeightage = (activeCriteria) => {
   return { valid: true, total, message: "Weightage totals 100%." };
 };
 
+export const validateSubCriteriaWeightage = (subCriteria) => {
+  if (!subCriteria || !subCriteria.length) return { valid: true, total: 100, message: "No sub-criteria." };
+  const hundredths = subCriteria.reduce((sum, c) => sum + toHundredths(c.weightage), 0);
+  const total = hundredths / 100;
+  if (hundredths < 10000) {
+    return { valid: false, total, message: `Sub-criteria weightage totals ${total}% — it must be exactly 100% (${roundDisplay(100 - total)}% short).` };
+  }
+  if (hundredths > 10000) {
+    return { valid: false, total, message: `Sub-criteria weightage totals ${total}% — it must be exactly 100% (${roundDisplay(total - 100)}% over).` };
+  }
+  return { valid: true, total, message: "Sub-criteria weightage totals 100%." };
+};
+
 // A criterion with no departments applies to every department (and to
 // employees with none); otherwise only to the listed departments.
 export const appliesToDepartment = (criterion, departmentId) => {
@@ -318,6 +333,17 @@ export const appliesToDepartment = (criterion, departmentId) => {
   if (!list.length) return true;
   return Boolean(departmentId) && list.some((d) => String(d?._id || d) === String(departmentId));
 };
+
+export const appliesToPosition = (criterion, position) => {
+  const list = criterion.positions || [];
+  if (!list.length) return true;
+  if (!position) return false;
+  const posClean = String(position).trim().toLowerCase();
+  return list.some((p) => String(p).trim().toLowerCase() === posClean);
+};
+
+export const appliesToDepartmentAndPosition = (criterion, departmentId, position) =>
+  appliesToDepartment(criterion, departmentId) && appliesToPosition(criterion, position);
 
 // A department's own weightage for a criterion (departmentWeightages
 // override), falling back to the criterion's default weightage.
@@ -333,6 +359,11 @@ export const effectiveWeightage = (criterion, departmentId) => {
 // finalized appraisal snapshots.
 export const criteriaForDepartment = (criteria, departmentId) =>
   criteria.filter((c) => appliesToDepartment(c, departmentId)).map((c) => ({ ...c, weightage: effectiveWeightage(c, departmentId) }));
+
+export const criteriaForDepartmentAndPosition = (criteria, departmentId, position) =>
+  criteria
+    .filter((c) => appliesToDepartmentAndPosition(c, departmentId, position))
+    .map((c) => ({ ...c, weightage: effectiveWeightage(c, departmentId) }));
 
 // The 100% rule, per department: every department's applicable active
 // criteria must total exactly 100%. `departments` = [{ _id, name }]; pass
@@ -361,6 +392,9 @@ export const validateCriterion = (c) => {
   if (!c.name || !String(c.name).trim()) errors.push("Name is required");
   if (!c.key || !/^[a-z0-9_]+$/.test(c.key)) errors.push("Key must be lowercase letters, digits or underscores");
   if (!CRITERION_TYPES.includes(c.type)) errors.push(`Type must be one of ${CRITERION_TYPES.join(", ")}`);
+  if (c.frequency && !EVALUATION_FREQUENCIES.includes(c.frequency)) {
+    errors.push(`Frequency must be one of: ${EVALUATION_FREQUENCIES.join(", ")}`);
+  }
   const w = Number(c.weightage);
   if (!Number.isFinite(w) || w < 0 || w > 100) errors.push("Weightage must be between 0 and 100");
   else if (toHundredths(w) !== roundTo(w * 100, 6)) errors.push("Weightage allows at most 2 decimals");
@@ -368,15 +402,17 @@ export const validateCriterion = (c) => {
 
   if (c.type === "manual") {
     if (c.scoringMethod !== "rating") errors.push("Manual criteria use the rating scoring method");
-    const options = c.ratingOptions || [];
-    if (options.length < 2) errors.push("Manual criteria need at least 2 rating options");
-    const keys = new Set();
-    for (const o of options) {
-      if (!o.key || !o.label) errors.push("Every rating option needs a key and label");
-      if (keys.has(o.key)) errors.push(`Duplicate rating option "${o.key}"`);
-      keys.add(o.key);
-      const pct = Number(o.pct);
-      if (!Number.isFinite(pct) || pct < 0 || pct > 100) errors.push(`Rating "${o.label}" percentage must be 0–100`);
+    if (!c.scoreFromSubCriteria) {
+      const options = c.ratingOptions || [];
+      if (options.length < 2) errors.push("Manual criteria need at least 2 rating options");
+      const keys = new Set();
+      for (const o of options) {
+        if (!o.key || !o.label) errors.push("Every rating option needs a key and label");
+        if (keys.has(o.key)) errors.push(`Duplicate rating option "${o.key}"`);
+        keys.add(o.key);
+        const pct = Number(o.pct);
+        if (!Number.isFinite(pct) || pct < 0 || pct > 100) errors.push(`Rating "${o.label}" percentage must be 0–100`);
+      }
     }
   } else {
     if (c.scoringMethod === "rating") errors.push("Only manual criteria can use the rating method");

@@ -9,6 +9,8 @@ import { canManage, canViewAll, managedIdSet } from "../services/appraisal/appra
 import { audit, diffFields } from "../services/appraisal/appraisalAudit.js";
 import { isValidMonth, monthPeriod } from "../services/appraisal/appraisalPeriod.js";
 import { istDayStr } from "../utils/istTime.js";
+import { recordActivity, notify } from "../utils/record.js";
+import { getPenalties, getBugReporterBonus } from "../utils/pointsConfig.js";
 
 // Bug reports against employees, for appraisal. Reporters: HR/admin
 // (anyone), team leads — manager/sublead/subadmin — (only people they
@@ -147,6 +149,44 @@ export const createBug = async (req, res) => {
       reviewedAt: isHr ? new Date() : null,
     });
     await audit({ actor: req.user, action: "bug_created", entityType: "bug", entityId: bug._id, subject: employee, month: day.slice(0, 7), after: { title: bug.title, severity, status: bug.status } });
+
+    const bugPenalty = getPenalties().bug;
+    const bugBonus = getBugReporterBonus();
+
+    if (bugPenalty > 0) {
+      recordActivity({
+        actor: req.user._id,
+        action: "bug_logged",
+        entityType: "task",
+        entityId: bug._id,
+        project: project || null,
+        meta: { title: bug.title, points: -bugPenalty, users: [String(employee)] },
+      });
+      notify({
+        user: employee,
+        type: "points_awarded",
+        title: `-${bugPenalty} pts: bug logged against you — "${bug.title}"`,
+        link: `/bugs`,
+      });
+    }
+
+    if (bugBonus > 0) {
+      recordActivity({
+        actor: req.user._id,
+        action: "bug_reported",
+        entityType: "task",
+        entityId: bug._id,
+        project: project || null,
+        meta: { title: bug.title, points: bugBonus, users: [String(req.user._id)] },
+      });
+      notify({
+        user: req.user._id,
+        type: "points_awarded",
+        title: `+${bugBonus} pts: bonus for reporting bug — "${bug.title}"`,
+        link: `/bugs`,
+      });
+    }
+
     const notice = await lockedNotice(employee, day);
     return res.status(201).json({ success: true, message: notice || "Bug reported", data: { bug: await populateBug(BugReport.findById(bug._id)), notice } });
   } catch (error) {

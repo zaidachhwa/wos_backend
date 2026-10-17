@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-import { CRITERION_TYPES, SCORING_METHODS } from "../constants/appraisal.constants.js";
+import { CRITERION_TYPES, SCORING_METHODS, EVALUATION_FREQUENCIES } from "../constants/appraisal.constants.js";
 
 const ratingOptionSchema = new mongoose.Schema(
   {
@@ -21,8 +21,14 @@ const appraisalCriterionSchema = new mongoose.Schema(
     key: { type: String, required: true, unique: true, trim: true },
     name: { type: String, required: true, trim: true },
     description: { type: String, default: "" },
+    // Parent criterion if this is a sub-criterion. null for main/top-level criteria.
+    parentCriterion: { type: mongoose.Schema.Types.ObjectId, ref: "AppraisalCriterion", default: null },
+    // Evaluation frequency: Daily, Weekly, Biweekly, or Monthly
+    frequency: { type: String, enum: EVALUATION_FREQUENCIES, default: "monthly" },
+    // If a main criterion has sub-criteria, define whether its score is calculated from sub-criteria
+    scoreFromSubCriteria: { type: Boolean, default: true },
     type: { type: String, enum: CRITERION_TYPES, required: true },
-    // Percent of the 100-point total. Active criteria must sum to exactly 100.
+    // Percent of the 100-point total. Active top-level criteria must sum to exactly 100.
     weightage: { type: Number, required: true, min: 0, max: 100 },
     // Automatic/hybrid only — key into METRICS (appraisal.constants.js).
     metric: { type: String, default: null },
@@ -37,6 +43,8 @@ const appraisalCriterionSchema = new mongoose.Schema(
     // employees without one). Each department's applicable active criteria
     // must total exactly 100% (see validateDepartmentWeightage).
     departments: [{ type: mongoose.Schema.Types.ObjectId, ref: "Department" }],
+    // Positions / designations this criterion applies to. Empty = all positions.
+    positions: [{ type: String, trim: true }],
     // Per-department weightage overrides; a department without one uses
     // `weightage` above (the default).
     departmentWeightages: [
@@ -56,5 +64,7 @@ const appraisalCriterionSchema = new mongoose.Schema(
 );
 
 appraisalCriterionSchema.index({ isActive: 1, sortOrder: 1 });
+appraisalCriterionSchema.index({ parentCriterion: 1 });
+appraisalCriterionSchema.index({ departments: 1 });
 
 export default mongoose.model("AppraisalCriterion", appraisalCriterionSchema);

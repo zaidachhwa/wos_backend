@@ -56,6 +56,12 @@ const appraisalSettingsSchema = new mongoose.Schema(
       thresholdPct: { type: Number, default: 60, min: 0, max: 100 },
       maxItems: { type: Number, default: 3, min: 1, max: 10 },
     },
+    // Configurable numeric scoring values for Poor / Average / Good ratings
+    scoringScale: {
+      poor: { type: Number, default: 25, min: 0, max: 100 },
+      average: { type: Number, default: 50, min: 0, max: 100 },
+      good: { type: Number, default: 100, min: 0, max: 100 },
+    },
     // Roles that get a monthly appraisal (same default set the attendance
     // sweep tracks — see services/attendanceSweep.js TRACKED_ROLES).
     appraisedRoles: { type: [String], default: ["manager", "sublead", "member", "qa"] },

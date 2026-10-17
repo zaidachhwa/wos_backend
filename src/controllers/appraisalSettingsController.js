@@ -3,6 +3,8 @@ import mongoose from "mongoose";
 import AppraisalCriterion from "../models/AppraisalCriterion.js";
 import AppraisalSettings from "../models/AppraisalSettings.js";
 import Department from "../models/Department.js";
+import Role from "../models/Role.js";
+import User from "../models/User.js";
 import { BUG_STATUSES, CRITERION_TYPES, METRICS, SCORING_METHODS } from "../constants/appraisal.constants.js";
 import { ROLES } from "../constants/roles.constants.js";
 import { getAllCriteria, getSettings, weightageStatus } from "../services/appraisal/appraisalConfig.js";
@@ -28,6 +30,10 @@ const CRITERION_FIELDS = [
   "isActive",
   "departments",
   "departmentWeightages",
+  "parentCriterion",
+  "frequency",
+  "positions",
+  "scoreFromSubCriteria",
 ];
 
 // [{ department, weightage }] -> sorted, de-duplicated, numbers coerced,
@@ -74,10 +80,30 @@ const normalizeCriterion = (body, existing = {}) => {
     if (c.params[k] === "" || c.params[k] === null) delete c.params[k];
     else if (c.params[k] !== undefined) c.params[k] = Number(c.params[k]);
   }
+
+  c.parentCriterion = body.parentCriterion ? String(body.parentCriterion) : null;
+  c.frequency = body.frequency || existing.frequency || "monthly";
+  c.scoreFromSubCriteria = body.scoreFromSubCriteria !== undefined ? Boolean(body.scoreFromSubCriteria) : (existing.scoreFromSubCriteria ?? true);
+  c.positions = Array.isArray(body.positions)
+    ? [...new Set(body.positions.map((p) => String(p).trim()).filter(Boolean))]
+    : existing.positions || [];
+
   if (c.type === "manual") {
     c.metric = null;
     c.scoringMethod = "rating";
-    c.ratingOptions = (c.ratingOptions || []).map((o) => ({ key: slugify(o.key || o.label), label: String(o.label || "").trim(), pct: Number(o.pct) }));
+    if (Array.isArray(body.ratingOptions) && body.ratingOptions.length) {
+      c.ratingOptions = body.ratingOptions.map((o) => ({
+        key: slugify(o.key || o.label),
+        label: String(o.label || "").trim(),
+        pct: Number(o.pct),
+      }));
+    } else if (!c.scoreFromSubCriteria && (!c.ratingOptions || !c.ratingOptions.length)) {
+      c.ratingOptions = [
+        { key: "poor", label: "Poor", pct: 25 },
+        { key: "average", label: "Average", pct: 50 },
+        { key: "good", label: "Good", pct: 100 },
+      ];
+    }
     c.group = "hr_evaluation";
   } else {
     c.ratingOptions = [];
@@ -350,6 +376,16 @@ export const updateSettings = async (req, res) => {
       next.automation = { autoFinalizeMode: mode, emailsEnabled: a.emailsEnabled ?? current.automation?.emailsEnabled ?? true, maxEmailAttempts };
     }
 
+    if (body.scoringScale !== undefined) {
+      const poor = Number(body.scoringScale.poor ?? current.scoringScale?.poor ?? 25);
+      const average = Number(body.scoringScale.average ?? current.scoringScale?.average ?? 50);
+      const good = Number(body.scoringScale.good ?? current.scoringScale?.good ?? 100);
+      if ([poor, average, good].some((n) => !Number.isFinite(n) || n < 0 || n > 100)) {
+        return fail(res, 400, "Scoring scale values must be numbers between 0 and 100");
+      }
+      next.scoringScale = { poor, average, good };
+    }
+
     const changes = diffFields(current, { ...current, ...next }, Object.keys(next));
     if (!changes) return res.json({ success: true, message: "No changes", data: { settings: current } });
 
@@ -359,8 +395,33 @@ export const updateSettings = async (req, res) => {
     if (changes.after.classifications || changes.after.classificationDecimals !== undefined) {
       await audit({ ...common, action: "classification_changed", before: { classifications: current.classifications }, after: { classifications: updated.classifications } });
     }
+    if (changes.after.scoringScale) {
+      await audit({ ...common, action: "scoring_scale_changed", before: { scoringScale: current.scoringScale }, after: { scoringScale: updated.scoringScale } });
+    }
     await audit({ ...common, action: "settings_updated", ...changes });
     return res.json({ success: true, message: "Settings saved", data: { settings: updated } });
+  } catch (error) {
+    return serverError(res, error);
+  }
+};
+
+export const listPositions = async (req, res) => {
+  try {
+    const { department } = req.query;
+    const filter = { isActive: true, designation: { $nin: ["", null] } };
+    if (department && mongoose.isValidObjectId(department)) filter.department = department;
+    const designations = await User.find(filter).distinct("designation");
+
+    // Also include roles defined in Role collection
+    const roleFilter = { isActive: true };
+    if (department && mongoose.isValidObjectId(department)) {
+      roleFilter.$or = [{ department }, { department: null }];
+    }
+    const roles = await Role.find(roleFilter).select("name").lean();
+    const roleNames = roles.map((r) => r.name);
+
+    const positions = [...designations, ...roleNames].map((d) => String(d).trim()).filter(Boolean).sort();
+    return res.json({ success: true, message: "Positions fetched", data: { positions: [...new Set(positions)] } });
   } catch (error) {
     return serverError(res, error);
   }

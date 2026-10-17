@@ -9,7 +9,7 @@ import { canViewProject, visibilityFilter, idOf } from "./projectController.js";
 import { paginationParams, paginationMeta } from "../utils/pagination.js";
 import { validateTimeSlot } from "../utils/taskDates.js";
 import { maxBonusFor } from "../utils/points.js";
-import { getPenalties } from "../utils/pointsConfig.js";
+import { getPenalties, getBugReporterBonus } from "../utils/pointsConfig.js";
 import { computeStatusDurations } from "../utils/statusDurations.js";
 import { getManagedUserIds } from "../utils/departmentScope.js";
 import { istDayStr } from "../utils/istTime.js";
@@ -236,19 +236,40 @@ export const createTask = async (req, res) => {
 
     if (task.type === "bug") {
       const bugPenalty = getPenalties().bug;
-      recordActivity({
-        actor: req.user._id,
-        action: "bug_logged",
-        entityType: "task",
-        entityId: task._id,
-        project: project._id,
-        meta: { title: task.title, points: -bugPenalty, users: task.assignees.map(String) },
-      });
-      for (const userId of task.assignees) {
+      const bugBonus = getBugReporterBonus();
+
+      if (bugPenalty > 0) {
+        recordActivity({
+          actor: req.user._id,
+          action: "bug_logged",
+          entityType: "task",
+          entityId: task._id,
+          project: project._id,
+          meta: { title: task.title, points: -bugPenalty, users: task.assignees.map(String) },
+        });
+        for (const userId of task.assignees) {
+          notify({
+            user: userId,
+            type: "points_awarded",
+            title: `-${bugPenalty} pts: bug logged — "${task.title}"`,
+            link: `/tasks/${task._id}`,
+          });
+        }
+      }
+
+      if (bugBonus > 0) {
+        recordActivity({
+          actor: req.user._id,
+          action: "bug_reported",
+          entityType: "task",
+          entityId: task._id,
+          project: project._id,
+          meta: { title: task.title, points: bugBonus, users: [String(req.user._id)] },
+        });
         notify({
-          user: userId,
+          user: req.user._id,
           type: "points_awarded",
-          title: `-${bugPenalty} pts: bug logged — "${task.title}"`,
+          title: `+${bugBonus} pts: bonus for reporting bug — "${task.title}"`,
           link: `/tasks/${task._id}`,
         });
       }

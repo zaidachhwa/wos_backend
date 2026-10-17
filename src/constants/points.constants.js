@@ -1,3 +1,4 @@
 export const POINTS_BY_PRIORITY = { low: 5, medium: 10, high: 15 };
 export const AUTO_AWARD_RATIO = 0.75;
 export const PENALTIES = { completedLate: 5, overdue: 2, bug: 1 };
+export const BUG_REPORTER_BONUS = 2;

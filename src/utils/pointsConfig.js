@@ -1,13 +1,19 @@
 import LeaderboardConfig from "../models/LeaderboardConfig.js";
-import { POINTS_BY_PRIORITY as DEFAULT_POINTS, PENALTIES as DEFAULT_PENALTIES } from "../constants/points.constants.js";
+import {
+  POINTS_BY_PRIORITY as DEFAULT_POINTS,
+  PENALTIES as DEFAULT_PENALTIES,
+  BUG_REPORTER_BONUS as DEFAULT_BUG_REPORTER_BONUS,
+} from "../constants/points.constants.js";
 
 // In-memory cache so points.js can stay synchronous — refreshed on boot and
 // on every admin update. Small/rare writes, so no cache-invalidation edge cases.
 let currentPoints = { ...DEFAULT_POINTS };
 let currentPenalties = { ...DEFAULT_PENALTIES };
+let currentBugReporterBonus = DEFAULT_BUG_REPORTER_BONUS;
 
 export const getPointsByPriority = () => currentPoints;
 export const getPenalties = () => currentPenalties;
+export const getBugReporterBonus = () => currentBugReporterBonus;
 
 export const loadPointsConfig = async () => {
   const doc = await LeaderboardConfig.findOne();
@@ -15,6 +21,7 @@ export const loadPointsConfig = async () => {
     const obj = doc.toObject();
     currentPoints = { ...DEFAULT_POINTS, ...obj.pointsByPriority };
     currentPenalties = { ...DEFAULT_PENALTIES, ...obj.penalties };
+    if (obj.bugReporterBonus !== undefined) currentBugReporterBonus = obj.bugReporterBonus;
   }
 };
 
@@ -26,7 +33,14 @@ export const loadPointsConfig = async () => {
 const persist = async (overrides) =>
   LeaderboardConfig.findOneAndUpdate(
     {},
-    { $set: { pointsByPriority: currentPoints, penalties: currentPenalties, ...overrides } },
+    {
+      $set: {
+        pointsByPriority: currentPoints,
+        penalties: currentPenalties,
+        bugReporterBonus: currentBugReporterBonus,
+        ...overrides,
+      },
+    },
     { upsert: true, runValidators: true }
   );
 
@@ -42,4 +56,11 @@ export const setPenalties = async (values) => {
   await persist({ penalties: next });
   currentPenalties = next;
   return currentPenalties;
+};
+
+export const setBugReporterBonus = async (val) => {
+  const next = Number(val);
+  await persist({ bugReporterBonus: next });
+  currentBugReporterBonus = next;
+  return currentBugReporterBonus;
 };
