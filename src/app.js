@@ -32,7 +32,24 @@ import roleRoutes from "./routes/roleRoutes.js";
 
 const app = express();
 
-app.use(cors({ origin: process.env.CLIENT_ORIGIN, credentials: true }));
+const allowedOrigins = (process.env.CLIENT_ORIGIN || "")
+  .split(",")
+  .map((origin) => origin.trim().replace(/\/+$/, ""))
+  .filter(Boolean);
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      const cleanOrigin = origin.replace(/\/+$/, "");
+      if (allowedOrigins.length === 0 || allowedOrigins.includes(cleanOrigin)) {
+        return callback(null, true);
+      }
+      return callback(null, false);
+    },
+    credentials: true,
+  })
+);
 app.use(express.json());
 app.use(cookieParser());
 

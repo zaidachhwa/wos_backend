@@ -4,8 +4,16 @@ import jwt from "jsonwebtoken";
 let io = null;
 
 export const initIO = (httpServer) => {
+  const allowedOrigins = (process.env.CLIENT_ORIGIN || "")
+    .split(",")
+    .map((origin) => origin.trim().replace(/\/+$/, ""))
+    .filter(Boolean);
+
   io = new Server(httpServer, {
-    cors: { origin: process.env.CLIENT_ORIGIN, credentials: true },
+    cors: {
+      origin: allowedOrigins.length === 1 ? allowedOrigins[0] : allowedOrigins,
+      credentials: true,
+    },
   });
   io.use((socket, next) => {
     try {
