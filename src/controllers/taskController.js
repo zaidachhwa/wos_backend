@@ -14,13 +14,13 @@ import { computeStatusDurations } from "../utils/statusDurations.js";
 import { getManagedUserIds } from "../utils/departmentScope.js";
 import { istDayStr } from "../utils/istTime.js";
 
-const SUBLEAD_PLUS = ["admin", "manager", "subadmin", "sublead"];
+const SUBLEAD_PLUS = ["admin", "manager", "subadmin", "sublead", "head_of_technical_operations"];
 // Roles that may create and assign tasks (plus any project's own manager).
-export const TASK_CREATOR_ROLES = ["admin", "hr", "director", "manager", "sublead", "subadmin", "technical_coordinator"];
+export const TASK_CREATOR_ROLES = ["admin", "hr", "director", "manager", "sublead", "subadmin", "technical_coordinator", "head_of_technical_operations"];
 // Deliberately excludes subadmin: unlike task-editing (SUBLEAD_PLUS), comment
 // moderation here has no canViewProject/department-scope check at all, so
 // including subadmin would grant unscoped cross-department comment moderation.
-const COMMENT_MODERATOR_ROLES = ["admin", "manager", "sublead"];
+const COMMENT_MODERATOR_ROLES = ["admin", "manager", "sublead", "head_of_technical_operations"];
 
 const MANAGE_FIELDS = [
   "title",
@@ -59,7 +59,7 @@ const MEMBER_FLAGGERS = ["sublead", "manager", "subadmin"];
 // chain can do, so QA sits outside canViewProject's department/team scope
 // entirely. Everyone else needs both the right role AND project visibility.
 const canFlagDefects = async (actor, task, project) => {
-  if (actor.role === "admin" || actor.role === "qa") return true;
+  if (actor.role === "admin" || actor.role === "qa" || actor.role === "head_of_technical_operations") return true;
   if (!(await canViewProject(actor, project))) return false;
   const assignees = await User.find({ _id: { $in: task.assignees } }).select("role");
   const hasLeadAssignee = assignees.some((u) => LEAD_ASSIGNEE_ROLES.includes(u.role));

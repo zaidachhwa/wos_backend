@@ -25,4 +25,14 @@ export const bonusRequestRouter = Router();
 bonusRequestRouter.use(authenticate);
 bonusRequestRouter.get("/mine", myBonusRequest);
 bonusRequestRouter.post("/", submitBonusRequest);
-bonusRequestRouter.get("/", authorize(...BONUS_REQUEST_VIEWERS), listBonusRequests);
+bonusRequestRouter.get(
+  "/",
+  authorize(...BONUS_REQUEST_VIEWERS),
+  (req, res, next) => {
+    if (req.user?.role === "head_of_technical_operations") {
+      return res.status(403).json({ success: false, message: "Head of Technical Operations cannot view special bonus requests of other employees" });
+    }
+    next();
+  },
+  listBonusRequests
+);

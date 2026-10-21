@@ -88,7 +88,7 @@ export const closeMonth = async (month, { now = new Date(), actor = null } = {})
     // Tell HR what still needs them — the pending ones get emailed as soon
     // as HR finalizes them (see queueDueEmails).
     if (incomplete.length || !weight.valid || errors.length) {
-      const hr = await User.find({ role: { $in: ["admin", "hr"] }, isActive: true }).select("_id");
+      const hr = await User.find({ role: { $in: ["admin", "hr", "head_of_technical_operations"] }, isActive: true }).select("_id");
       const body =
         `${finalized} finalized automatically; ${incomplete.length} still need HR input${errors.length ? `; ${errors.length} failed` : ""}.` +
         (weight.valid ? "" : ` Weightage problem — ${weight.message}`);

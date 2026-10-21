@@ -48,7 +48,7 @@ export const getManagedUserIds = async (user) => {
 export const reportScopeFilter = async (user) => {
   // hr and director see the org-wide report too — same "all Tasks and Followups"
   // visibility as canViewProject/visibilityFilter in projectController.js.
-  if (user.role === "admin" || user.role === "hr" || user.role === "director") {
+  if (user.role === "admin" || user.role === "hr" || user.role === "director" || user.role === "head_of_technical_operations") {
     return { role: { $ne: "admin" }, isActive: true };
   }
   if (user.role === "subadmin") {
@@ -68,7 +68,7 @@ export const reportScopeFilter = async (user) => {
 //   2026-07-30-department-segregation-design.md) — unchanged fallback so an
 //   unassigned sub-lead isn't suddenly scoped to nothing.
 export const resolveDepartmentScope = async (user) => {
-  if (user.role === "admin" || user.role === "hr" || user.role === "director") return null;
+  if (user.role === "admin" || user.role === "hr" || user.role === "director" || user.role === "head_of_technical_operations") return null;
 
   if (user.role === "subadmin") {
     const teamIds = await getManagedTeamIds(user.managedDepartment);

@@ -13,7 +13,7 @@ import { getManagedUserIds, getManagedTeamIds, resolveDepartmentScope } from "..
 export const idOf = (v) => String(v?._id || v);
 
 const canManage = async (user, project) => {
-  if (user.role === "admin" || user.role === "director") return true;
+  if (user.role === "admin" || user.role === "director" || user.role === "head_of_technical_operations") return true;
   if (idOf(project.manager) === String(user._id)) return true;
   if (["manager", "subadmin"].includes(user.role)) {
     const managedIds = (await getManagedUserIds(user)).map(String);
@@ -40,7 +40,7 @@ export const canViewProject = async (user, project) => {
   // director: can view all projects (they have full project oversight) but
   // cannot browse team tasks/follow-ups — that restriction is enforced in
   // taskController/followUpController, not here.
-  if (["admin", "hr", "director"].includes(user.role)) return true;
+  if (["admin", "hr", "director", "head_of_technical_operations"].includes(user.role)) return true;
   if (idOf(project.manager) === String(user._id)) return true;
   if ((project.members || []).some((m) => idOf(m) === String(user._id))) return true;
   const teamIds = (await teamScopeIds(user)).map(String);
@@ -58,8 +58,8 @@ export const canViewProject = async (user, project) => {
 // Exported for taskController: build a Project filter matching what a user
 // may view, so task list filtering doesn't duplicate the visibility rule.
 export const visibilityFilter = async (user) => {
-  // admin/hr/director: org-wide project visibility.
-  if (["admin", "hr", "director"].includes(user.role)) return {};
+  // admin/hr/director/head_of_technical_operations: org-wide project visibility.
+  if (["admin", "hr", "director", "head_of_technical_operations"].includes(user.role)) return {};
   const scopeIds = [...(await teamScopeIds(user)), user._id];
   const [assignedModuleProjectIds, assignedTaskProjectIds] = await Promise.all([
     ProjectModule.find({ assignees: { $in: scopeIds } }).distinct("project"),

@@ -208,8 +208,8 @@ export const bulkUpdateInputs = async (req, res) => {
 // Director's 20% and Special Bonus % for many employees in one request.
 // Per field, per role: director score = director/admin; bonus = HR/director/
 // admin. Per-row results, like bulkUpdateInputs.
-export const DIRECTOR_SCORE_ROLES = ["director", "admin"];
-export const BONUS_ROLES = ["hr", "director", "admin"];
+export const DIRECTOR_SCORE_ROLES = ["director", "admin", "head_of_technical_operations"];
+export const BONUS_ROLES = ["hr", "director", "admin", "head_of_technical_operations"];
 
 export const bulkUpdateDirectorInputs = async (req, res) => {
   try {

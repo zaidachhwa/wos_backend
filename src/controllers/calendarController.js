@@ -6,7 +6,7 @@ import User from "../models/User.js";
 import { canActForUser } from "./timeblockController.js";
 import { teamScopeIds } from "./projectController.js";
 
-const ORG_WIDE_VIEWERS = ["admin", "hr", "director"];
+const ORG_WIDE_VIEWERS = ["admin", "hr", "director", "head_of_technical_operations"];
 
 // Everyone whose calendar (task dates, deadlines) `viewer` may *read*:
 //   admin / HR / director        → everyone

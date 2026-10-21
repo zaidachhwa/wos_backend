@@ -7,7 +7,7 @@ import { recordActivity } from "../utils/record.js";
 // Self always OK; admin can act for anyone; manager only for their own reports.
 export const canActForUser = async (actor, targetUserId) => {
   if (String(targetUserId) === String(actor._id)) return true;
-  if (actor.role === "admin") return true;
+  if (actor.role === "admin" || actor.role === "head_of_technical_operations") return true;
   if (actor.role === "manager") {
     const target = await User.findById(targetUserId);
     return !!target && String(target.reportingManager) === String(actor._id);
@@ -21,6 +21,7 @@ export const canActForUser = async (actor, targetUserId) => {
 
 const canModify = (actor, block) =>
   actor.role === "admin" ||
+  actor.role === "head_of_technical_operations" ||
   String(block.user) === String(actor._id) ||
   String(block.createdBy) === String(actor._id);
 

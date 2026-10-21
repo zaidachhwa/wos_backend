@@ -83,7 +83,7 @@ export const maybeSendDirectorDeptReport = async (deptId, month) => {
     const deptMembers = await User.find({
       department: deptId,
       isActive: true,
-      role: { $nin: ["admin", "director", "hr"] }, // only appraisable roles
+      role: { $nin: ["admin", "director", "hr", "head_of_technical_operations"] }, // only appraisable roles
     })
       .select("_id")
       .lean();

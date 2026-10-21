@@ -250,7 +250,7 @@ const memberDashboard = async (user) => {
 export const getDashboard = async (req, res) => {
   try {
     let data;
-    if (req.user.role === "admin") data = await adminDashboard(req.user);
+    if (req.user.role === "admin" || req.user.role === "head_of_technical_operations") data = await adminDashboard(req.user);
     else if (req.user.role === "member") data = await memberDashboard(req.user);
     else data = await managerLikeDashboard(req.user); // manager, sublead, director, hr
     return res.json({ success: true, message: "Dashboard fetched", data });

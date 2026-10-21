@@ -9,7 +9,7 @@ export const CRITERION_TYPES = ["automatic", "manual", "hybrid"];
 
 // Increment group: these roles — plus anyone who manages a project — get the
 // "Team leader" increment rate; everyone else gets the employee rate.
-export const LEADER_ROLES = ["admin", "hr", "director", "manager", "sublead", "technical_coordinator"];
+export const LEADER_ROLES = ["admin", "hr", "director", "manager", "sublead", "technical_coordinator", "head_of_technical_operations"];
 
 export const EVALUATION_FREQUENCIES = ["daily", "weekly", "biweekly", "monthly"];
 
@@ -57,10 +57,10 @@ export const BUG_STATUSES = ["reported", "confirmed", "rejected", "resolved"];
 export const EMAIL_STATUSES = ["pending", "processing", "sent", "failed", "retrying"];
 
 // Role groups — mapped onto the existing WOS roles (roles.constants.js).
-export const APPRAISAL_MANAGE_ROLES = ["admin", "hr"];
-export const APPRAISAL_VIEW_ALL_ROLES = ["admin", "hr", "director"];
+export const APPRAISAL_MANAGE_ROLES = ["admin", "hr", "head_of_technical_operations"];
+export const APPRAISAL_VIEW_ALL_ROLES = ["admin", "hr", "director", "head_of_technical_operations"];
 export const TEAM_LEAD_ROLES = ["manager", "sublead", "subadmin"];
-export const BUG_REPORTER_ROLES = ["admin", "hr", "manager", "sublead", "subadmin", "qa"];
+export const BUG_REPORTER_ROLES = ["admin", "hr", "manager", "sublead", "subadmin", "qa", "head_of_technical_operations"];
 
 export const AUDIT_ACTIONS = [
   "criterion_created",

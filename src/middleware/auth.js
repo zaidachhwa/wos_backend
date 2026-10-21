@@ -30,8 +30,13 @@ export const authenticate = async (req, res, next) => {
 export const authorize =
   (...roles) =>
   (req, res, next) => {
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({ success: false, message: "Forbidden" });
+    const userRole = req.user?.role;
+    if (roles.includes(userRole)) {
+      return next();
     }
-    next();
+    // Head of Technical Operations inherits all Admin permissions across the system
+    if (userRole === "head_of_technical_operations" && roles.includes("admin")) {
+      return next();
+    }
+    return res.status(403).json({ success: false, message: "Forbidden" });
   };

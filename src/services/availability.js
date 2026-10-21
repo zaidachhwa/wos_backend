@@ -120,8 +120,8 @@ export const visiblePeople = async (viewer) => {
     if (list.length) groups.push({ label, userIds: [...new Set(list)] });
   };
 
-  if (viewer.role === "admin") {
-    add("Everyone", await User.find({ isActive: true, role: { $nin: ["admin"] } }).distinct("_id"));
+  if (viewer.role === "admin" || viewer.role === "head_of_technical_operations") {
+    add("Everyone", await User.find({ isActive: true, role: { $nin: ["admin", "head_of_technical_operations"] } }).distinct("_id"));
     return groups;
   }
 

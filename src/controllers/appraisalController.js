@@ -127,7 +127,7 @@ export const getAppraisal = async (req, res) => {
     // org-wide roster, department-wise. Neither does task work themselves,
     // so both are excluded from the roster rows. "unassigned" (no query
     // value) matches users with no department set at all.
-    const rosterFilter = { isActive: true, role: { $nin: ["admin", "hr"] } };
+    const rosterFilter = { isActive: true, role: { $nin: ["admin", "hr", "head_of_technical_operations"] } };
     if (req.query.department === "unassigned") rosterFilter.department = null;
     else if (req.query.department) rosterFilter.department = req.query.department;
     if (req.query.team) rosterFilter.team = req.query.team;

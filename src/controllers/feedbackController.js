@@ -10,7 +10,7 @@ const serverError = (res, error) => {
   return fail(res, 500, "Something went wrong");
 };
 
-export const FEEDBACK_VIEWERS = ["admin", "hr"];
+export const FEEDBACK_VIEWERS = ["admin", "hr", "head_of_technical_operations"];
 export const BONUS_REQUEST_VIEWERS = ["admin", "hr", "director"];
 
 // ------------------------------------------------------------ anonymous feedback
@@ -109,6 +109,9 @@ export const submitBonusRequest = async (req, res) => {
 
 export const listBonusRequests = async (req, res) => {
   try {
+    if (req.user?.role === "head_of_technical_operations") {
+      return fail(res, 403, "Head of Technical Operations cannot view special bonus requests of other employees");
+    }
     const month = /^\d{4}-(0[1-9]|1[0-2])$/.test(req.query.month || "") ? req.query.month : bonusWindow().month;
     const requests = await BonusRequest.find({ month })
       .populate({ path: "user", select: "name email designation department", populate: { path: "department", select: "name" } })

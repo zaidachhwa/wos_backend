@@ -7,7 +7,7 @@ import { notify } from "../utils/record.js";
 // The Director's "General" tasks. Creators (director/admin) create, edit and
 // delete; each assignee marks the task done for themselves.
 
-export const GENERAL_TASK_CREATORS = ["director", "admin"];
+export const GENERAL_TASK_CREATORS = ["director", "admin", "head_of_technical_operations"];
 
 const fail = (res, status, message) => res.status(status).json({ success: false, message });
 const serverError = (res, error) => {
