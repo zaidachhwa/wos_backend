@@ -92,6 +92,13 @@ describe("who can create tasks", () => {
       assert.equal(r.status, 201, `${who}: ${r.data?.message}`);
     }
   });
+  test("no 2 tasks per day limit: users can create more than 2 tasks in a day without 429", async () => {
+    // Lead already created 1 task above, let's create 3 more (total 4) to ensure no limit triggers
+    for (let i = 1; i <= 3; i++) {
+      const r = await newTask("lead", u.other, [u.member], `Extra task ${i}`);
+      assert.equal(r.status, 201, `Task ${i} creation failed: ${r.data?.message}`);
+    }
+  });
   test("the Director still assigns only to HR", async () => {
     assert.equal((await newTask("director", u.other, [u.member])).status, 403);
     assert.equal((await newTask("director", u.other, [u.hr])).status, 201);

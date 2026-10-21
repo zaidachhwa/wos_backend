@@ -140,7 +140,10 @@ export const listUsers = async (req, res) => {
   try {
     const pageParams = paginationParams(req.query);
     const baseFilter =
-      req.user.role === "admin" || req.user.role === "hr" || req.user.role === "director"
+      req.user.role === "admin" ||
+      req.user.role === "head_of_technical_operations" ||
+      req.user.role === "hr" ||
+      req.user.role === "director"
         ? {}
         : MANAGEABLE_ROLES[req.user.role]
           ? { _id: { $in: await getManagedUserIds(req.user) } }
@@ -236,6 +239,22 @@ const ALLOWED_UPDATE_FIELDS = {
     "morningDeadline",
     "joinedAt",
   ],
+  head_of_technical_operations: [
+    "name",
+    "designation",
+    "role",
+    "department",
+    "team",
+    "reportingManager",
+    "isActive",
+    "managedDepartment",
+    "managedTeam",
+    "managedTeams",
+    "shiftStart",
+    "shiftEnd",
+    "morningDeadline",
+    "joinedAt",
+  ],
   hr: [
     "name",
     "designation",
@@ -244,12 +263,15 @@ const ALLOWED_UPDATE_FIELDS = {
     "team",
     "reportingManager",
     "isActive",
+    "managedDepartment",
+    "managedTeam",
+    "managedTeams",
     "shiftStart",
     "shiftEnd",
     "morningDeadline",
     "joinedAt",
   ],
-  subadmin: ["name", "designation", "role", "team", "isActive", "managedTeam", "shiftStart", "shiftEnd"],
+  subadmin: ["name", "designation", "role", "team", "isActive", "managedTeam", "managedTeams", "shiftStart", "shiftEnd"],
   manager: ["name", "designation", "role", "team", "isActive", "shiftStart", "shiftEnd"],
   sublead: ["name", "designation", "role", "team", "isActive", "shiftStart", "shiftEnd"],
 };

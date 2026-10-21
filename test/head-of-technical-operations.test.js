@@ -104,6 +104,55 @@ describe("Head of Technical Operations Admin permissions", () => {
     assert.ok(res.data.data.totals, "HTO receives the admin dashboard totals");
     assert.ok(res.data.data.generalTasksOverview, "HTO receives generalTasksOverview");
   });
+
+  test("HTO can edit a member's role and designation, and changes save to the database", async () => {
+    // 1. Edit member to sublead with a custom designation
+    const res1 = await call(() =>
+      api.patch(
+        `/users/${u.member._id}`,
+        { role: "sublead", designation: "Platform Sub Lead" },
+        as("hto")
+      )
+    );
+    assert.equal(res1.status, 200, res1.data?.message);
+    assert.equal(res1.data.data.user.role, "sublead");
+    assert.equal(res1.data.data.user.designation, "Platform Sub Lead");
+
+    let dbUser = await User.findById(u.member._id);
+    assert.equal(dbUser.role, "sublead");
+    assert.equal(dbUser.designation, "Platform Sub Lead");
+
+    // 2. Edit member to QA with a QA designation
+    const res2 = await call(() =>
+      api.patch(
+        `/users/${u.member._id}`,
+        { role: "qa", designation: "QA Automation Engineer" },
+        as("hto")
+      )
+    );
+    assert.equal(res2.status, 200, res2.data?.message);
+    assert.equal(res2.data.data.user.role, "qa");
+    assert.equal(res2.data.data.user.designation, "QA Automation Engineer");
+
+    dbUser = await User.findById(u.member._id);
+    assert.equal(dbUser.role, "qa");
+    assert.equal(dbUser.designation, "QA Automation Engineer");
+
+    // 3. Edit back to member
+    const res3 = await call(() =>
+      api.patch(
+        `/users/${u.member._id}`,
+        { role: "member", designation: "Software Engineer" },
+        as("hto")
+      )
+    );
+    assert.equal(res3.status, 200, res3.data?.message);
+    assert.equal(res3.data.data.user.role, "member");
+
+    dbUser = await User.findById(u.member._id);
+    assert.equal(dbUser.role, "member");
+    assert.equal(dbUser.designation, "Software Engineer");
+  });
 });
 
 describe("Head of Technical Operations Special Bonus restriction", () => {
