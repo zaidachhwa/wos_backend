@@ -259,8 +259,23 @@ export const scoreCriterion = (criterion, metrics, evaluation = null) => {
 export const classify = (score, classifications = [], decimals = 0) => {
   const rounded = roundTo(score, decimals);
   const band = classifications.find((c) => rounded >= Number(c.min) && rounded <= Number(c.max));
-  return band ? { key: band.key, label: band.label, tone: band.tone || "muted" } : { key: null, label: null, tone: null };
+  return band
+    ? {
+        key: band.key,
+        label: band.label,
+        tone: band.tone || "muted",
+        employeeIncrementPct: Number(band.employeeIncrementPct || 0),
+        leaderIncrementPct: Number(band.leaderIncrementPct || 0),
+      }
+    : { key: null, label: null, tone: null, employeeIncrementPct: 0, leaderIncrementPct: 0 };
 };
+
+// The increment an appraisal earns: the band's leader rate for the leader
+// group, otherwise its employee rate.
+export const incrementFor = (classification, isLeader) => ({
+  group: isLeader ? "leader" : "member",
+  pct: Number((isLeader ? classification?.leaderIncrementPct : classification?.employeeIncrementPct) || 0),
+});
 
 // Weak criteria for the improvement-areas list: anything under the
 // configured performance threshold, weakest first, capped at maxItems —
@@ -295,6 +310,18 @@ export const computeAppraisal = ({ criteria, settings, metrics, evaluations = []
     missingInputs,
     complete: missingInputs.length === 0,
   };
+};
+
+// Final score = (criteria score out of 100 + Director's 0–20) ÷ 120 × 100,
+// then + Special Bonus % as points (may exceed 100). The classification band
+// is looked up on the final score capped at 100.
+//   e.g. base 98, director 15, bonus 5 → (98 + 15) ÷ 120 × 100 = 94.17 → 99.17
+export const DIRECTOR_MAX = 20;
+export const composeFinalScore = ({ baseScore, directorScore, bonusPct = 0 }) => {
+  const director = directorScore === null || directorScore === undefined ? 0 : clamp(Number(directorScore), 0, DIRECTOR_MAX);
+  const convertedScore = roundStore(((Number(baseScore) + director) / (100 + DIRECTOR_MAX)) * 100);
+  const totalScore = roundStore(convertedScore + Math.max(0, Number(bonusPct) || 0));
+  return { convertedScore, totalScore, classificationScore: Math.min(100, totalScore) };
 };
 
 // ---------------------------------------------------------------- validation

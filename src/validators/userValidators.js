@@ -23,6 +23,11 @@ export const validateCreateUser = (req, res, next) => {
       .status(400)
       .json({ success: false, message: "managedDepartment is required for the subadmin role" });
   }
+  // A coordinator's whole job is their department's availability — no
+  // department means nobody to coordinate.
+  if (role === "technical_coordinator" && !req.body.department) {
+    return res.status(400).json({ success: false, message: "department is required for the technical coordinator role" });
+  }
   if (role === "manager" && !managedTeam) {
     return res
       .status(400)

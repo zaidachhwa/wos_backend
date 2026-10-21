@@ -41,6 +41,11 @@ import {
   listClientChanges,
   categorizeClientChange,
   listAudit,
+  bulkUpdateDirectorInputs,
+  updateDirectorAssessment,
+  updateSpecialBonus,
+  DIRECTOR_SCORE_ROLES,
+  BONUS_ROLES,
 } from "../controllers/appraisalsController.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { APPRAISAL_MANAGE_ROLES, APPRAISAL_VIEW_ALL_ROLES, TEAM_LEAD_ROLES } from "../constants/appraisal.constants.js";
@@ -79,6 +84,8 @@ router.get("/performance/monthly/:employeeId", getMonthlyPerformanceBreakdown);
 // Month roster, inputs, reports
 router.get("/", viewAll, listAppraisals);
 router.patch("/inputs", manage, bulkUpdateInputs);
+// Director's 20% + Special Bonus % grid (per-field role checks inside).
+router.patch("/director-inputs", authorize(...new Set([...DIRECTOR_SCORE_ROLES, ...BONUS_ROLES])), bulkUpdateDirectorInputs);
 router.post("/finalize-month", manage, finalizeMonth);
 router.get("/reports", viewAll, report);
 router.get("/emails", manage, listEmailLogs);
@@ -96,6 +103,8 @@ router.get("/:id/audit", manage, appraisalAudit);
 router.post("/:id/recalculate", manage, recalculateAppraisal);
 router.patch("/:id/hr-inputs", manage, updateAppraisalHrInputs);
 router.patch("/:id/evaluations/:criterionKey", manage, updateEvaluation);
+router.patch("/:id/director-assessment", authorize(...DIRECTOR_SCORE_ROLES), updateDirectorAssessment);
+router.patch("/:id/special-bonus", authorize(...BONUS_ROLES), updateSpecialBonus);
 router.post("/:id/submit", manage, submit);
 router.post("/:id/finalize", manage, finalize);
 router.post("/:id/reopen", manage, reopen);

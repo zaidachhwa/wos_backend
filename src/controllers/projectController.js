@@ -22,6 +22,17 @@ const canManage = async (user, project) => {
   return false;
 };
 
+// The people whose work a lead may see (their projects, tasks and task
+// dates): manager / sub-admin / sub-lead → the people they manage;
+// technical coordinator → everyone in their department.
+export const teamScopeIds = async (user) => {
+  if (["manager", "subadmin", "sublead"].includes(user.role)) return getManagedUserIds(user);
+  if (user.role === "technical_coordinator" && user.department) {
+    return User.find({ department: user.department, isActive: true }).distinct("_id");
+  }
+  return [];
+};
+
 // Exported for moduleController/taskController: same visibility rule applies
 // to viewing a project's modules/tasks.
 export const canViewProject = async (user, project) => {
@@ -32,13 +43,12 @@ export const canViewProject = async (user, project) => {
   if (["admin", "hr", "director"].includes(user.role)) return true;
   if (idOf(project.manager) === String(user._id)) return true;
   if ((project.members || []).some((m) => idOf(m) === String(user._id))) return true;
-  if (["manager", "subadmin"].includes(user.role)) {
-    const managedIds = (await getManagedUserIds(user)).map(String);
-    if (managedIds.includes(idOf(project.manager))) return true;
-    if ((project.members || []).some((m) => managedIds.includes(idOf(m)))) return true;
+  const teamIds = (await teamScopeIds(user)).map(String);
+  if (teamIds.length) {
+    if (teamIds.includes(idOf(project.manager))) return true;
+    if ((project.members || []).some((m) => teamIds.includes(idOf(m)))) return true;
   }
-  const scopeIds =
-    ["manager", "subadmin"].includes(user.role) ? [...(await getManagedUserIds(user)), user._id] : [user._id];
+  const scopeIds = [...teamIds, user._id];
   const assignedToAModule = await ProjectModule.exists({ project: project._id, assignees: { $in: scopeIds } });
   if (assignedToAModule) return true;
   const assignedToATask = await Task.exists({ project: project._id, assignees: { $in: scopeIds } });
@@ -50,8 +60,7 @@ export const canViewProject = async (user, project) => {
 export const visibilityFilter = async (user) => {
   // admin/hr/director: org-wide project visibility.
   if (["admin", "hr", "director"].includes(user.role)) return {};
-  const scopeIds =
-    ["manager", "subadmin"].includes(user.role) ? [...(await getManagedUserIds(user)), user._id] : [user._id];
+  const scopeIds = [...(await teamScopeIds(user)), user._id];
   const [assignedModuleProjectIds, assignedTaskProjectIds] = await Promise.all([
     ProjectModule.find({ assignees: { $in: scopeIds } }).distinct("project"),
     Task.find({ assignees: { $in: scopeIds } }).distinct("project"),

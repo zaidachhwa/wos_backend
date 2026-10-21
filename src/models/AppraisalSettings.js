@@ -29,6 +29,10 @@ const classificationSchema = new mongoose.Schema(
     tone: { type: String, enum: ["danger", "warning", "success", "info", "muted"], default: "muted" },
     emailMessage: { type: String, default: "" },
     showImprovementAreas: { type: Boolean, default: false },
+    // Salary increment this rating earns: one rate for members, one for the
+    // leader group (see LEADER_ROLES in appraisal.constants.js).
+    employeeIncrementPct: { type: Number, default: 0, min: 0, max: 100 },
+    leaderIncrementPct: { type: Number, default: 0, min: 0, max: 100 },
   },
   { _id: false }
 );

@@ -4,7 +4,7 @@ import axios from "axios";
 const BASE = process.env.API_URL || "http://localhost:5000/api";
 const EMAIL = process.env.SEED_ADMIN_EMAIL;
 const PASSWORD = process.env.SEED_ADMIN_PASSWORD;
-const HAS_KEY = Boolean(process.env.RESEND_API_KEY);
+const HAS_KEY = Boolean(process.env.SMTP_HOST || process.env.SMTP_SERVICE || process.env.RESEND_API_KEY);
 
 const authFor = async (email, password) => {
   const login = await axios.post(`${BASE}/auth/login`, { email, password });
@@ -39,9 +39,9 @@ const run = async () => {
   assert.equal(sweep.status, 200, "admin can trigger the sweep");
 
   if (!HAS_KEY) {
-    assert.equal(sweep.data.data.skipped, true, "sweep no-ops without RESEND_API_KEY");
-    assert.equal(sweep.data.data.sent, 0, "no emails sent without a configured key");
-    console.log("smoke-followup-reminders: all checks passed (no RESEND_API_KEY — no-op path verified)");
+    assert.equal(sweep.data.data.skipped, true, "sweep no-ops without email configured");
+    assert.equal(sweep.data.data.sent, 0, "no emails sent without configured email");
+    console.log("smoke-followup-reminders: all checks passed (no email configured — no-op path verified)");
     return;
   }
 
@@ -55,7 +55,7 @@ const run = async () => {
   const secondSweep = await axios.post(`${BASE}/followups/send-evening-reminders`, {}, adminAuth);
   assert.equal(secondSweep.data.data.sent, 0, "re-running the sweep the same day re-sends nobody (idempotent)");
 
-  console.log("smoke-followup-reminders: all checks passed (live Resend)");
+  console.log("smoke-followup-reminders: all checks passed (live mail service)");
 };
 
 run().catch((error) => {

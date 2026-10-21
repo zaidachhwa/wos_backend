@@ -1,9 +1,18 @@
 import AppraisalCriterion from "../../models/AppraisalCriterion.js";
 import EmployeeAppraisal from "../../models/EmployeeAppraisal.js";
 import User from "../../models/User.js";
-import { EDITABLE_STATUSES } from "../../constants/appraisal.constants.js";
+import Project from "../../models/Project.js";
+import { EDITABLE_STATUSES, LEADER_ROLES } from "../../constants/appraisal.constants.js";
 import { buildConfigSnapshot, getActiveCriteria, getSettings } from "./appraisalConfig.js";
-import { appliesToDepartment, computeAppraisal, criteriaForDepartment, validateWeightage } from "./appraisalEngine.js";
+import {
+  appliesToDepartment,
+  classify,
+  composeFinalScore,
+  computeAppraisal,
+  criteriaForDepartment,
+  incrementFor,
+  validateWeightage,
+} from "./appraisalEngine.js";
 import { collectMetrics } from "./appraisalMetrics.js";
 import { hasMonthEnded, monthPeriod } from "./appraisalPeriod.js";
 import { roundStore } from "./appraisalMath.js";
@@ -22,6 +31,7 @@ export class AppraisalError extends Error {
 }
 
 const EMPLOYEE_FIELDS = "name email role designation department team isActive";
+export const DIRECTOR_INPUT_LABEL = "Director's assessment (out of 20)";
 
 export const appraisedUserFilter = (settings, extra = {}) => ({
   isActive: true,
@@ -111,8 +121,14 @@ const recalcGroup = async (live, cfg, crit, now, { byDepartment }) => {
     now,
   });
 
-  const users = await User.find({ _id: { $in: live.map((d) => d.user._id || d.user) } }).select("department");
+  const userIds = live.map((d) => d.user._id || d.user);
+  const users = await User.find({ _id: { $in: userIds } }).select("department role");
   const deptByUser = new Map(users.map((u) => [String(u._id), u.department || null]));
+  // Increment group: leader roles, or anyone currently managing a project.
+  const projectManagers = new Set(
+    (await Project.find({ manager: { $in: userIds }, status: { $nin: ["completed", "cancelled"] } }).distinct("manager")).map(String)
+  );
+  const isLeader = new Map(users.map((u) => [String(u._id), LEADER_ROLES.includes(u.role) || projectManagers.has(String(u._id))]));
 
   const ops = [];
   for (const doc of live) {
@@ -120,10 +136,21 @@ const recalcGroup = async (live, cfg, crit, now, { byDepartment }) => {
     const metrics = metricsByUser.get(key);
     const applicable = byDepartment ? criteriaForDepartment(crit, deptByUser.get(key)) : crit;
     const result = computeAppraisal({ criteria: applicable, settings: cfg, metrics, evaluations: doc.evaluations || [] });
+    // Criteria (out of 100) + Director (out of 20) → out of 100, + bonus.
+    const directorScore = doc.directorAssessment?.score ?? null;
+    const final = composeFinalScore({ baseScore: result.totalScore, directorScore, bonusPct: doc.specialBonus?.pct ?? 0 });
+    if (directorScore === null) {
+      result.missingInputs.push(DIRECTOR_INPUT_LABEL);
+      result.complete = false;
+    }
+    const classification = classify(final.classificationScore, cfg.classifications, cfg.classificationDecimals ?? 0);
     const update = {
       entries: result.entries,
-      totalScore: result.totalScore,
-      classification: result.classification,
+      baseScore: result.totalScore,
+      convertedScore: final.convertedScore,
+      totalScore: final.totalScore,
+      classification,
+      increment: incrementFor(classification, isLeader.get(key)),
       improvementAreas: result.improvementAreas,
       missingInputs: result.missingInputs,
       metricsSnapshot: metrics,
@@ -227,6 +254,69 @@ export const updateHrInputs = async (doc, { leaves, lateMarks, notes, scoreFrom,
   if (doc.status === "reopened" && (next.leaves !== before.leaves || next.lateMarks !== before.lateMarks)) {
     await audit({ ...common, action: "appraisal_modified_after_reopen", before, after: next });
   }
+  return doc;
+};
+
+const twoDecimals = (n) => Math.round(n * 100) === Math.round(n * 100 * 1e6) / 1e6;
+
+// Director's separate 0–20 assessment (director / admin only — enforced by
+// the route). null clears it.
+export const setDirectorAssessment = async (doc, { score, comment }, actor) => {
+  assertEditable(doc);
+  const before = { score: doc.directorAssessment?.score ?? null, comment: doc.directorAssessment?.comment || "" };
+  let next = before.score;
+  if (score !== undefined) {
+    if (score === null || score === "") next = null;
+    else {
+      const n = Number(score);
+      if (!Number.isFinite(n) || n < 0 || n > 20 || !twoDecimals(n)) throw new AppraisalError("Director's assessment must be between 0 and 20 (up to 2 decimals)");
+      next = n;
+    }
+  }
+  doc.directorAssessment = {
+    score: next,
+    comment: comment !== undefined ? String(comment || "").slice(0, 2000) : before.comment,
+    updatedBy: actor._id,
+    updatedAt: new Date(),
+  };
+  await doc.save();
+  await audit({
+    actor,
+    action: "director_assessment_set",
+    entityType: "appraisal",
+    entityId: doc._id,
+    subject: doc.user,
+    month: doc.month,
+    before,
+    after: { score: next, comment: doc.directorAssessment.comment },
+  });
+  return doc;
+};
+
+// Optional Special Bonus % (HR / director / admin — enforced by the route).
+export const setSpecialBonus = async (doc, { pct, reason }, actor) => {
+  assertEditable(doc);
+  const before = { pct: doc.specialBonus?.pct ?? 0, reason: doc.specialBonus?.reason || "" };
+  let next = before.pct;
+  if (pct !== undefined) {
+    const n = pct === null || pct === "" ? 0 : Number(pct);
+    if (!Number.isFinite(n) || n < 0 || n > 100 || !twoDecimals(n)) throw new AppraisalError("Special bonus must be between 0 and 100% (up to 2 decimals)");
+    next = n;
+  }
+  const nextReason = reason !== undefined ? String(reason || "").trim().slice(0, 2000) : before.reason;
+  if (next > 0 && nextReason.length < 3) throw new AppraisalError("Please give a short reason for the special bonus");
+  doc.specialBonus = { pct: next, reason: next > 0 ? nextReason : "", updatedBy: actor._id, updatedAt: new Date() };
+  await doc.save();
+  await audit({
+    actor,
+    action: "special_bonus_set",
+    entityType: "appraisal",
+    entityId: doc._id,
+    subject: doc.user,
+    month: doc.month,
+    before,
+    after: { pct: next, reason: doc.specialBonus.reason },
+  });
   return doc;
 };
 

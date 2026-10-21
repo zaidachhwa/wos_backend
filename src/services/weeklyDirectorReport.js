@@ -4,7 +4,7 @@ import BugReport from "../models/BugReport.js";
 import Project from "../models/Project.js";
 import Department from "../models/Department.js";
 import Activity from "../models/Activity.js";
-import { emailConfigured, sendEmail } from "./resend.js";
+import { emailConfigured, sendEmail } from "./email.js";
 import { istDayStr } from "../utils/istTime.js";
 import { pointsForCompletedTask } from "../utils/points.js";
 

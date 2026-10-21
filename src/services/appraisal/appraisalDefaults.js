@@ -138,6 +138,36 @@ export const DEFAULT_CRITERIA = [
   },
 ];
 
+// Rating + salary increment slabs (company policy table). The final score is
+// rounded to whole numbers before matching, so 69.4 → 69 (Needs improvement)
+// and 69.5 → 70 (Developing). Scores above 100 (special bonus) use 98–100.
+const slab = (key, label, min, max, tone, employeeIncrementPct, leaderIncrementPct, emailMessage, showImprovementAreas) => ({
+  key,
+  label,
+  min,
+  max,
+  tone,
+  employeeIncrementPct,
+  leaderIncrementPct,
+  emailMessage,
+  showImprovementAreas,
+});
+
+export const INCREMENT_SLABS = [
+  slab("unsatisfactory", "Unsatisfactory", 0, 59, "danger", 0, 0, "Your performance this month is below the expected standard. Please focus on the areas below and discuss a plan with your Team Lead.", true),
+  slab("needs_improvement", "Needs improvement", 60, 69, "danger", 3, 3, "Please focus on improving the areas below during the upcoming month.", true),
+  slab("developing", "Developing", 70, 79, "warning", 5, 6, "You are making progress. Keep working on the areas below to move to the next rating.", true),
+  slab("good", "Good", 80, 84, "info", 7, 10, "Good work this month. Keep it up.", false),
+  slab("very_good", "Very good", 85, 89, "info", 9, 14, "Very good performance this month. Thank you for your contribution.", false),
+  slab("excellent", "Excellent", 90, 94, "success", 12, 18, "Excellent performance this month. Thank you for your contribution and professionalism.", false),
+  slab("exceptional", "Exceptional", 95, 97, "success", 14, 22, "Exceptional performance this month — thank you for going above and beyond.", false),
+  slab("outstanding", "Outstanding", 98, 100, "success", 15, 25, "Outstanding performance this month — thank you for setting the standard.", false),
+];
+
+// The three bands the module originally shipped with; replaced by
+// INCREMENT_SLABS on boot if HR never customised them (appraisalConfig.js).
+export const LEGACY_CLASSIFICATION_KEYS = ["needs_improvement:0-35", "consistent:36-75", "excellent:76-100"];
+
 export const DEFAULT_SETTINGS = {
   bugSeverities: [
     { key: "critical", label: "Critical", penalty: 5, isActive: true },
@@ -154,36 +184,7 @@ export const DEFAULT_SETTINGS = {
     { key: "other", label: "Other", countsAgainstEmployee: false },
   ],
   uncategorizedClientChangeCounts: false,
-  classifications: [
-    {
-      key: "needs_improvement",
-      label: "Needs Improvement",
-      min: 0,
-      max: 35,
-      tone: "danger",
-      showImprovementAreas: true,
-      emailMessage: "Please focus on improving these areas during the upcoming month.",
-    },
-    {
-      key: "consistent",
-      label: "Consistent Performance but Under the Acceptance Criteria",
-      min: 36,
-      max: 75,
-      tone: "warning",
-      showImprovementAreas: true,
-      emailMessage:
-        "Your performance has remained consistent; however, the overall score is currently below the company's defined acceptance criteria. Please continue working on the identified improvement areas.",
-    },
-    {
-      key: "excellent",
-      label: "Excellent Performance",
-      min: 76,
-      max: 100,
-      tone: "success",
-      showImprovementAreas: false,
-      emailMessage: "Your performance for the month has been evaluated as excellent. Thank you for your contribution and continued professionalism.",
-    },
-  ],
+  classifications: INCREMENT_SLABS,
   classificationDecimals: 0,
   improvementRule: { thresholdPct: 60, maxItems: 3 },
   scoringScale: { poor: 25, average: 50, good: 100 },

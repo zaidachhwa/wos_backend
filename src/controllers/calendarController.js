@@ -4,6 +4,49 @@ import Project from "../models/Project.js";
 import FollowUp from "../models/FollowUp.js";
 import User from "../models/User.js";
 import { canActForUser } from "./timeblockController.js";
+import { teamScopeIds } from "./projectController.js";
+
+const ORG_WIDE_VIEWERS = ["admin", "hr", "director"];
+
+// Everyone whose calendar (task dates, deadlines) `viewer` may *read*:
+//   admin / HR / director        → everyone
+//   team lead / sub-lead / sub-admin → the people they manage (+ direct reports)
+//   technical coordinator        → their department
+//   project manager (any role)   → members and assignees of their projects
+// Writing time blocks for others keeps the narrower canActForUser rule.
+export const calendarPeopleIds = async (viewer) => {
+  if (ORG_WIDE_VIEWERS.includes(viewer.role)) return null; // null = everyone
+  const ids = new Set((await teamScopeIds(viewer)).map(String));
+  for (const id of await User.find({ reportingManager: viewer._id, isActive: true }).distinct("_id")) ids.add(String(id));
+  const projects = await Project.find({ manager: viewer._id }).select("members").lean();
+  if (projects.length) {
+    for (const p of projects) for (const m of p.members || []) ids.add(String(m));
+    for (const a of await Task.find({ project: { $in: projects.map((p) => p._id) } }).distinct("assignees")) ids.add(String(a));
+  }
+  ids.delete(String(viewer._id));
+  return [...ids];
+};
+
+const canViewCalendarOf = async (viewer, targetId) => {
+  if (String(targetId) === String(viewer._id)) return true;
+  if (await canActForUser(viewer, targetId)) return true;
+  const ids = await calendarPeopleIds(viewer);
+  return ids === null || ids.includes(String(targetId));
+};
+
+// People the viewer can switch the calendar to (backs the person picker).
+export const calendarPeople = async (req, res) => {
+  try {
+    const ids = await calendarPeopleIds(req.user);
+    const filter = { isActive: true, _id: { $ne: req.user._id } };
+    if (ids !== null) filter._id = { $in: ids, $ne: req.user._id };
+    const users = await User.find(filter).select("name role designation").sort("name").lean();
+    return res.json({ success: true, message: "People fetched", data: { users } });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: "Something went wrong" });
+  }
+};
 
 const collectItems = async (userId, fromDate, toDate) => {
   const range = { $gte: fromDate, $lte: toDate };
@@ -103,9 +146,10 @@ export const getCalendar = async (req, res) => {
       return res.status(400).json({ success: false, message: "from and to must be valid dates" });
     }
 
-    // Admins may view anyone's calendar; managers their reports'; else own only.
+    // Read access: see calendarPeopleIds (org-wide roles, leads, coordinators,
+    // project managers); otherwise own calendar only.
     const targetId = user || req.user._id;
-    if (!(await canActForUser(req.user, targetId))) {
+    if (!(await canViewCalendarOf(req.user, targetId))) {
       return res.status(403).json({ success: false, message: "Forbidden" });
     }
 

@@ -1,7 +1,7 @@
 import EmployeeAppraisal from "../../models/EmployeeAppraisal.js";
 import User from "../../models/User.js";
 import Department from "../../models/Department.js";
-import { emailConfigured, sendEmail } from "../resend.js";
+import { emailConfigured, sendEmail } from "../email.js";
 import { monthLabel } from "./appraisalPeriod.js";
 import { roundDisplay } from "./appraisalMath.js";
 

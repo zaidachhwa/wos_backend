@@ -3,14 +3,12 @@ import FollowUp from "../models/FollowUp.js";
 import Notification from "../models/Notification.js";
 import { emitTo } from "../utils/io.js";
 import { localDay } from "../controllers/notificationController.js";
-import { emailConfigured, sendEmail } from "./resend.js";
+import { emailConfigured, sendEmail } from "./email.js";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Resend's default rate limit is 2 requests/second — sending a whole
-// roster back-to-back trips it well before getting through everyone
-// (observed firsthand: a few hundred recipients all 429'd). A fixed gap
-// between sends keeps this under the limit without needing a queue.
+// A fixed gap between sends paces outbound SMTP connections to avoid
+// overwhelming the mail server when sending to a whole roster back-to-back.
 const SEND_GAP_MS = 550;
 
 // The 8:30pm nudge: emails everyone who hasn't submitted today's evening
@@ -22,7 +20,7 @@ const SEND_GAP_MS = 550;
 // this job ever runs.
 export const sendEveningFollowUpReminders = async (now = new Date()) => {
   if (!emailConfigured()) {
-    return { sent: 0, eligible: 0, skipped: true, reason: "RESEND_API_KEY not set" };
+    return { sent: 0, eligible: 0, skipped: true, reason: "email service not configured" };
   }
 
   const today = localDay(now);

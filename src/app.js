@@ -26,6 +26,8 @@ import analyticsRoutes from "./routes/analyticsRoutes.js";
 import appraisalsRoutes from "./routes/appraisalsRoutes.js";
 import bugRoutes from "./routes/bugRoutes.js";
 import generalTaskRoutes from "./routes/generalTaskRoutes.js";
+import availabilityRoutes from "./routes/availabilityRoutes.js";
+import { feedbackRouter, bonusRequestRouter } from "./routes/feedbackRoutes.js";
 import roleRoutes from "./routes/roleRoutes.js";
 
 const app = express();
@@ -56,6 +58,9 @@ app.use("/api/appraisal", appraisalRoutes);
 app.use("/api/appraisals", appraisalsRoutes);
 app.use("/api/bugs", bugRoutes);
 app.use("/api/general-tasks", generalTaskRoutes);
+app.use("/api/availability", availabilityRoutes);
+app.use("/api/feedback", feedbackRouter);
+app.use("/api/bonus-requests", bonusRequestRouter);
 app.use("/api/attendance", attendanceRoutes);
 app.use("/api/department-violations", departmentViolationRoutes);
 app.use("/api/analytics", analyticsRoutes);

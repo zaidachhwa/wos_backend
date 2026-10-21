@@ -15,6 +15,8 @@ import { getManagedUserIds } from "../utils/departmentScope.js";
 import { istDayStr } from "../utils/istTime.js";
 
 const SUBLEAD_PLUS = ["admin", "manager", "subadmin", "sublead"];
+// Roles that may create and assign tasks (plus any project's own manager).
+export const TASK_CREATOR_ROLES = ["admin", "hr", "director", "manager", "sublead", "subadmin", "technical_coordinator"];
 // Deliberately excludes subadmin: unlike task-editing (SUBLEAD_PLUS), comment
 // moderation here has no canViewProject/department-scope check at all, so
 // including subadmin would grant unscoped cross-department comment moderation.
@@ -109,10 +111,31 @@ export const createTask = async (req, res) => {
       return res.status(400).json({ success: false, message: "Bugs must be tagged to at least one module" });
     }
 
-    // Members can propose work, but only for themselves — assigning others
-    // stays a sublead+ privilege — and it sits behind manager/admin approval
-    // before it's "real" work.
-    const isMember = req.user.role === "member";
+    // Who may create (and assign) tasks: the creator roles below, or the
+    // Project Manager of this project whatever their role. Team members can
+    // no longer create tasks — not even for themselves.
+    const isProjectManager = idOf(project.manager) === String(req.user._id);
+    if (!TASK_CREATOR_ROLES.includes(req.user.role) && !isProjectManager) {
+      return res.status(403).json({
+        success: false,
+        message: "Only Team Leads, Sub Leads, Project Managers, Technical Coordinators, HR, Directors and Admins can create tasks",
+      });
+    }
+    // Director can only assign tasks to HR users — enforced here; the
+    // frontend only filters the picker.
+    if (req.user.role === "director") {
+      const assigneeIds = assignees || [];
+      if (!assigneeIds.length) {
+        return res.status(400).json({ success: false, message: "Director must assign the task to at least one HR user" });
+      }
+      const assigneeUsers = await User.find({ _id: { $in: assigneeIds } }).select("role");
+      if (assigneeUsers.length !== assigneeIds.length || assigneeUsers.some((u) => u.role !== "hr")) {
+        return res.status(403).json({ success: false, message: "Director can only assign tasks to HR users" });
+      }
+    }
+    // The old member "propose → approve" path is gone (members can't create);
+    // approve/reject below still handles any proposals already pending.
+    const isMember = false;
 
     // Daily task creation limit — no one may create more than 2 tasks on the
     // same IST calendar day. Admins are exempt (they manage the system).
@@ -204,7 +227,7 @@ export const createTask = async (req, res) => {
       // Email assignees when the creator is HR or Admin
       if (["hr", "admin"].includes(req.user.role) && task.assignees.length > 0) {
         const assigneeUsers = await User.find({ _id: { $in: task.assignees } }).select("name email");
-        const { emailConfigured, sendEmail } = await import("../services/resend.js");
+        const { emailConfigured, sendEmail } = await import("../services/email.js");
         if (emailConfigured()) {
           const deadlineStr = task.deadline
             ? new Date(task.deadline).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })

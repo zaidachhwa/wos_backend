@@ -45,6 +45,7 @@ export const NOTIFICATION_TYPES = [
   "performance_memo",
   "appraisal_update",
   "general_task",
+  "bonus_request",
 ];
 
 export const ACTIVITY_ENTITY_TYPES = ["project", "module", "task", "followup", "timeblock", "user"];

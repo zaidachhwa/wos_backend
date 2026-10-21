@@ -13,6 +13,10 @@ process.env.ACCESS_TOKEN_SECRET ||= "hr-perm-test-secret";
 process.env.REFRESH_TOKEN_SECRET ||= "hr-perm-test-refresh";
 process.env.CLIENT_ORIGIN ||= "http://localhost:3000";
 delete process.env.RESEND_API_KEY;
+delete process.env.SMTP_HOST;
+delete process.env.SMTP_SERVICE;
+delete process.env.SMTP_USER;
+delete process.env.SMTP_PASS;
 
 const { default: app } = await import("../src/app.js");
 const { default: User } = await import("../src/models/User.js");
@@ -20,6 +24,7 @@ const { default: Department } = await import("../src/models/Department.js");
 const { default: Team } = await import("../src/models/Team.js");
 const { default: Project } = await import("../src/models/Project.js");
 const { default: FollowUp } = await import("../src/models/FollowUp.js");
+const { default: Task } = await import("../src/models/Task.js");
 
 let server;
 let api;
@@ -69,10 +74,13 @@ describe("HR and tasks", () => {
     assert.equal(edit.status, 200, "HR can edit a task HR created");
   });
 
-  test("HR can approve and reject tasks proposed by team members", async () => {
-    const propose = (title) => api.post("/tasks", { project: u.project._id, title, priority: "low" }, as("member"));
-    const a = (await propose("Proposal A")).data.data.task;
-    const b = (await propose("Proposal B")).data.data.task;
+  test("HR can approve and reject tasks still pending from the old member-proposal flow", async () => {
+    // Members can no longer create tasks; proposals made before that change
+    // can still be decided.
+    const propose = async (title) =>
+      (await Task.create({ project: u.project._id, title, assignees: [u.member._id], createdBy: u.member._id, approvalStatus: "pending" })).toObject();
+    const a = JSON.parse(JSON.stringify(await propose("Proposal A")));
+    const b = JSON.parse(JSON.stringify(await propose("Proposal B")));
     assert.equal(a.approvalStatus, "pending");
 
     const pending = await api.get("/tasks", { params: { approvalStatus: "pending" }, ...as("hr") });

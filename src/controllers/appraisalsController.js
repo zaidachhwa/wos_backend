@@ -16,7 +16,9 @@ import {
   recalculate,
   recalculateOne,
   reopenAppraisal,
+  setDirectorAssessment,
   setEvaluation,
+  setSpecialBonus,
   submitAppraisal,
   getOrCreateDraft,
   updateHrInputs,
@@ -95,7 +97,14 @@ const rowOf = (d) => {
       : { _id: u.team?._id || null, name: u.team?.name || null },
     status: d.status,
     totalScore: d.totalScore,
+    baseScore: d.baseScore ?? null,
+    convertedScore: d.convertedScore ?? null,
+    directorScore: d.directorAssessment?.score ?? null,
+    directorComment: d.directorAssessment?.comment || "",
+    bonusPct: d.specialBonus?.pct ?? 0,
+    bonusReason: d.specialBonus?.reason || "",
     classification: d.classification,
+    increment: d.increment?.pct === null || d.increment?.pct === undefined ? null : d.increment,
     hrInputs: { leaves: d.hrInputs?.leaves ?? null, lateMarks: d.hrInputs?.lateMarks ?? null, scoreFrom: d.hrInputs?.scoreFrom ?? null, scoreTo: d.hrInputs?.scoreTo ?? null },
     bugs: d.metricsSnapshot?.bugs?.counted ?? 0,
     bugsTotal: d.metricsSnapshot?.bugs?.total ?? 0,
@@ -196,6 +205,45 @@ export const bulkUpdateInputs = async (req, res) => {
   }
 };
 
+// Director's 20% and Special Bonus % for many employees in one request.
+// Per field, per role: director score = director/admin; bonus = HR/director/
+// admin. Per-row results, like bulkUpdateInputs.
+export const DIRECTOR_SCORE_ROLES = ["director", "admin"];
+export const BONUS_ROLES = ["hr", "director", "admin"];
+
+export const bulkUpdateDirectorInputs = async (req, res) => {
+  try {
+    const month = monthParam(req.body.month);
+    const rows = Array.isArray(req.body.rows) ? req.body.rows.slice(0, 500) : [];
+    if (!rows.length) return fail(res, 400, "rows are required");
+    const canScore = DIRECTOR_SCORE_ROLES.includes(req.user.role);
+    const canBonus = BONUS_ROLES.includes(req.user.role);
+    const results = [];
+    const touched = [];
+    for (const row of rows) {
+      try {
+        const wantsScore = row.directorScore !== undefined || row.directorComment !== undefined;
+        const wantsBonus = row.bonusPct !== undefined || row.bonusReason !== undefined;
+        if (wantsScore && !canScore) throw new AppraisalError("Only a Director can give the Director's assessment", 403);
+        if (wantsBonus && !canBonus) throw new AppraisalError("You can't set the special bonus", 403);
+        const doc = await getOrCreateDraft(row.userId, month);
+        if (wantsScore) await setDirectorAssessment(doc, { score: row.directorScore, comment: row.directorComment }, req.user);
+        if (wantsBonus) await setSpecialBonus(doc, { pct: row.bonusPct, reason: row.bonusReason }, req.user);
+        touched.push(doc);
+        results.push({ userId: row.userId, ok: true });
+      } catch (error) {
+        results.push({ userId: row.userId, ok: false, message: error instanceof AppraisalError ? error.message : "Could not save" });
+        if (!(error instanceof AppraisalError)) console.error(error);
+      }
+    }
+    if (touched.length) await recalculate(touched);
+    const failed = results.filter((r) => !r.ok).length;
+    return res.json({ success: true, message: failed ? `${results.length - failed} saved, ${failed} failed` : "Saved", data: { results } });
+  } catch (error) {
+    return handle(res, error);
+  }
+};
+
 // ------------------------------------------------------------------ detail
 
 const criteriaMetaFor = async (doc) => {
@@ -214,6 +262,8 @@ const detailPayload = async (doc, user) => {
   const data = sanitizeAppraisal(doc, user);
   if (canViewAll(user)) data.criteriaMeta = await criteriaMetaFor(doc);
   data.canManage = canManage(user);
+  data.canDirectorScore = DIRECTOR_SCORE_ROLES.includes(user.role);
+  data.canBonus = BONUS_ROLES.includes(user.role);
   return data;
 };
 
@@ -258,6 +308,8 @@ export const recalculateAppraisal = mutate(async (doc) => {
 }, "Recalculated");
 export const updateAppraisalHrInputs = mutate((doc, req) => updateHrInputs(doc, req.body || {}, req.user), "HR inputs saved");
 export const updateEvaluation = mutate((doc, req) => setEvaluation(doc, req.params.criterionKey, req.body || {}, req.user), "Evaluation saved");
+export const updateDirectorAssessment = mutate((doc, req) => setDirectorAssessment(doc, req.body || {}, req.user), "Director's assessment saved");
+export const updateSpecialBonus = mutate((doc, req) => setSpecialBonus(doc, req.body || {}, req.user), "Special bonus saved");
 export const submit = mutate((doc, req) => submitAppraisal(doc, req.user), "Appraisal submitted");
 export const finalize = async (req, res) => {
   try {
@@ -339,7 +391,7 @@ const historyFor = async (userId, viewer) => {
   const filter = { user: userId };
   if (!canViewAll(viewer)) filter.status = "finalized";
   return EmployeeAppraisal.find(filter)
-    .select("month status totalScore classification finalizedAt employeeSnapshot")
+    .select("month status totalScore classification increment finalizedAt employeeSnapshot")
     .sort({ month: -1 })
     .lean();
 };
@@ -374,7 +426,7 @@ export const teamAppraisals = async (req, res) => {
     const month = monthParam(req.query.month);
     const ids = [...(await managedIdSet(req.user))];
     const docs = await EmployeeAppraisal.find({ user: { $in: ids }, month, status: "finalized" })
-      .select("user month status totalScore classification employeeSnapshot finalizedAt")
+      .select("user month status totalScore classification increment employeeSnapshot finalizedAt")
       .populate("user", "name designation")
       .lean();
     const members = await User.find({ _id: { $in: ids }, isActive: true }).select("name designation").sort("name").lean();
@@ -419,6 +471,8 @@ export const report = async (req, res) => {
         designation: r.user.designation || "",
         score: roundDisplay(r.totalScore),
         classification: r.classification?.label || "",
+        incrementGroup: r.increment ? (r.increment.group === "leader" ? "Team leader" : "Employee") : "",
+        incrementPct: r.increment ? r.increment.pct : "",
         status: r.status,
         scoreFrom,
         scoreTo,
@@ -485,7 +539,7 @@ export const report = async (req, res) => {
 
     if (req.query.format === "csv") {
       const cell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-      const header = ["Employee", "Email", "Department", "Team", "Designation", "Overall Score", "Classification", "Status", "Score From", "Score To"];
+      const header = ["Employee", "Email", "Department", "Team", "Designation", "Overall Score", "Rating", "Increment Group", "Increment %", "Status", "Score From", "Score To"];
       const csv = [header.join(","), ...summary.map((s) => Object.values(s).map(cell).join(","))].join("\n");
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", `attachment; filename="appraisal-report-${month}.csv"`);

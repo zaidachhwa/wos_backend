@@ -20,7 +20,9 @@ const router = Router();
 router.use(authenticate);
 
 router.get("/", listTasks);
-router.post("/", authorize("admin", "manager", "subadmin", "sublead", "member", "director", "hr"), validateTaskCreate, createTask);
+// Who may create is decided in createTask: TASK_CREATOR_ROLES, or the
+// project's own manager (a Project Manager can hold any role).
+router.post("/", validateTaskCreate, createTask);
 // Must come before "/:id" — otherwise Express matches "bulk" as the :id param.
 router.patch("/bulk", authorize("admin", "manager", "subadmin", "sublead"), bulkUpdateTasks);
 router.get("/:id", getTask);

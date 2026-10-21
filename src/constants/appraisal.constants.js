@@ -7,6 +7,10 @@ export const APPRAISAL_TIMEZONE = "Asia/Kolkata";
 
 export const CRITERION_TYPES = ["automatic", "manual", "hybrid"];
 
+// Increment group: these roles — plus anyone who manages a project — get the
+// "Team leader" increment rate; everyone else gets the employee rate.
+export const LEADER_ROLES = ["admin", "hr", "director", "manager", "sublead", "technical_coordinator"];
+
 export const EVALUATION_FREQUENCIES = ["daily", "weekly", "biweekly", "monthly"];
 
 export const PERFORMANCE_RATINGS = ["poor", "average", "good"];
@@ -93,4 +97,6 @@ export const AUDIT_ACTIONS = [
   "performance_evaluation_updated",
   "performance_evaluation_deleted",
   "scoring_scale_changed",
+  "director_assessment_set",
+  "special_bonus_set",
 ];

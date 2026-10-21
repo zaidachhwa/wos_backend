@@ -1,7 +1,7 @@
 import AppraisalEmailLog from "../../models/AppraisalEmailLog.js";
 import EmployeeAppraisal from "../../models/EmployeeAppraisal.js";
 import User from "../../models/User.js";
-import { emailConfigured, sendEmail } from "../resend.js";
+import { emailConfigured, sendEmail } from "../email.js";
 import { notify } from "../../utils/record.js";
 import { audit } from "./appraisalAudit.js";
 import { monthLabel } from "./appraisalPeriod.js";
@@ -16,7 +16,7 @@ import { roundDisplay } from "./appraisalMath.js";
 //  - a send interrupted mid-flight (crash while "processing") is marked
 //    failed, never auto-resent — it may have gone out.
 
-const SEND_GAP_MS = 550; // Resend's 2 req/s limit — same pacing as followUpReminders.js
+const SEND_GAP_MS = 550; // Outbound SMTP pacing gap
 const BACKOFF_MS = [5 * 60 * 1000, 30 * 60 * 1000, 2 * 60 * 60 * 1000];
 const STUCK_PROCESSING_MS = 10 * 60 * 1000;
 const EMAIL_DELAY_AFTER_PERIOD_MS = 60 * 1000 + 1; // periodEnd 23:59:59.999 -> 00:01:00.000
@@ -56,8 +56,21 @@ export const buildAppraisalEmail = (appraisal, employeeName) => {
     <p>Your performance appraisal for <strong>${esc(month)}</strong> has been completed.</p>
     <div style="border: 1px solid #e8e5e0; border-radius: 12px; padding: 16px; margin: 16px 0;">
       <p style="margin: 0;"><strong>Overall Score:</strong> ${score} / 100</p>
-      <p style="margin: 4px 0 0;"><strong>Performance Status:</strong> ${esc(appraisal.classification?.label || "—")}</p>
+      <p style="margin: 4px 0 0;"><strong>Rating:</strong> ${esc(appraisal.classification?.label || "—")}</p>
+      ${
+        appraisal.increment?.pct !== null && appraisal.increment?.pct !== undefined
+          ? `<p style="margin: 4px 0 0;"><strong>Increment:</strong> ${roundDisplay(appraisal.increment.pct)}% <span style="color:#6f6b63">(${appraisal.increment.group === "leader" ? "team leader" : "employee"} rate)</span></p>`
+          : ""
+      }
       ${scorePeriodLine}
+      ${
+        appraisal.baseScore !== null && appraisal.baseScore !== undefined
+          ? `<p style="margin: 8px 0 0; font-size: 13px; color: #6f6b63;">
+               Criteria ${roundDisplay(appraisal.baseScore)}/100 + Director's assessment ${roundDisplay(appraisal.directorAssessment?.score ?? 0)}/20
+               → ${roundDisplay(appraisal.convertedScore)}/100${appraisal.specialBonus?.pct ? ` + ${roundDisplay(appraisal.specialBonus.pct)}% special bonus` : ""}
+             </p>`
+          : ""
+      }
     </div>
     ${
       areas.length
@@ -122,7 +135,7 @@ const failLog = async (log, message, maxAttempts, now) => {
 };
 
 // Test seam: swaps the mail transport for every queue run (including the
-// background run kicked off by a manual retry). null restores Resend.
+// background run kicked off by a manual retry). null restores default email sender.
 let senderOverride = null;
 export const setEmailSender = (fn) => {
   senderOverride = fn;
@@ -150,7 +163,7 @@ export const processEmailQueue = async (now = new Date(), { maxAttempts = 3, sen
     if (!log) break;
 
     if (!send) {
-      await failLog(log, "Email service is not configured (RESEND_API_KEY missing)", maxAttempts, now);
+      await failLog(log, "Email service is not configured (SMTP settings missing)", maxAttempts, now);
       failed += 1;
       continue;
     }

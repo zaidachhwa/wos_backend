@@ -14,6 +14,7 @@ import { istClock } from "./utils/istTime.js";
 import { ensureAppraisalConfig } from "./services/appraisal/appraisalConfig.js";
 import { runAppraisalScheduler } from "./services/appraisal/appraisalScheduler.js";
 import { sendWeeklyDirectorReports } from "./services/weeklyDirectorReport.js";
+import { runAvailabilityAlerts } from "./services/availabilityAlerts.js";
 
 const PORT = process.env.PORT || 5000;
 
@@ -106,6 +107,21 @@ const start = async () => {
         );
       }
     }, 60 * 1000);
+
+    // "Getting free" countdown emails to Technical Coordinators (7/5/3/2/1
+    // days before, and when free). Hourly from 09:00 IST; every send is
+    // claimed in the DB first, so re-runs and restarts never duplicate.
+    // AVAILABILITY_ALERTS_DISABLED=true turns it off.
+    if (process.env.AVAILABILITY_ALERTS_DISABLED !== "true") {
+      let lastAvailabilityRunHour = null;
+      setInterval(() => {
+        const now = new Date();
+        const hourKey = now.toISOString().slice(0, 13);
+        if (lastAvailabilityRunHour === hourKey) return;
+        lastAvailabilityRunHour = hourKey;
+        runAvailabilityAlerts(now).catch((error) => console.error("availability alerts failed:", error.message));
+      }, 60 * 1000);
+    }
 
     const server = http.createServer(app);
     initIO(server);

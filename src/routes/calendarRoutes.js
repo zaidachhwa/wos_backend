@@ -1,6 +1,6 @@
 import { Router } from "express";
 
-import { getCalendar, icsFeed } from "../controllers/calendarController.js";
+import { getCalendar, icsFeed, calendarPeople } from "../controllers/calendarController.js";
 import { authenticate } from "../middleware/auth.js";
 
 const router = Router();
@@ -11,5 +11,6 @@ router.get("/ics/:token", icsFeed);
 router.use(authenticate);
 
 router.get("/", getCalendar);
+router.get("/people", calendarPeople);
 
 export default router;

@@ -12,6 +12,10 @@ process.env.ACCESS_TOKEN_SECRET ||= "general-test-secret";
 process.env.REFRESH_TOKEN_SECRET ||= "general-test-refresh";
 process.env.CLIENT_ORIGIN ||= "http://localhost:3000";
 delete process.env.RESEND_API_KEY;
+delete process.env.SMTP_HOST;
+delete process.env.SMTP_SERVICE;
+delete process.env.SMTP_USER;
+delete process.env.SMTP_PASS;
 
 const { default: app } = await import("../src/app.js");
 const { default: User } = await import("../src/models/User.js");

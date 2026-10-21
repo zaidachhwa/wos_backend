@@ -91,12 +91,47 @@ const employeeAppraisalSchema = new mongoose.Schema(
     },
     evaluations: { type: [evaluationSchema], default: [] },
 
+    // Director's separate assessment, 0–20, on top of the criteria's 100.
+    // null = not entered yet (required before finalization).
+    directorAssessment: {
+      score: { type: Number, default: null, min: 0, max: 20 },
+      comment: { type: String, default: "" },
+      updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+      updatedAt: { type: Date, default: null },
+    },
+    // Optional Special Bonus % granted by HR / Director / Admin, added as
+    // points after the 120 → 100 conversion (may take the total past 100).
+    specialBonus: {
+      pct: { type: Number, default: 0, min: 0, max: 100 },
+      reason: { type: String, default: "" },
+      updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+      updatedAt: { type: Date, default: null },
+    },
+
     entries: { type: [entrySchema], default: [] },
+    // Score composition (see composeFinalScore in appraisalEngine.js):
+    //   baseScore      criteria total, out of 100
+    //   convertedScore (baseScore + director 0–20) ÷ 120 × 100
+    //   totalScore     convertedScore + special bonus % — the final score
+    // Appraisals finalized before the Director/bonus feature have only
+    // totalScore (= criteria total).
+    baseScore: { type: Number, default: null },
+    convertedScore: { type: Number, default: null },
     totalScore: { type: Number, default: 0 },
     classification: {
       key: { type: String, default: null },
       label: { type: String, default: null },
       tone: { type: String, default: null },
+      employeeIncrementPct: { type: Number, default: null },
+      leaderIncrementPct: { type: Number, default: null },
+    },
+    // Salary increment this appraisal earns, from its rating band:
+    // group "leader" (admin, HR, director, team lead, sub-lead, technical
+    // coordinator, or anyone managing a project) or "member". Frozen with
+    // the rest of the appraisal at finalization.
+    increment: {
+      group: { type: String, enum: ["leader", "member", null], default: null },
+      pct: { type: Number, default: null },
     },
     improvementAreas: [{ criterionKey: String, name: String, score: Number, maxScore: Number, performancePct: Number }],
     missingInputs: [{ type: String }],

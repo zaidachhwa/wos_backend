@@ -348,7 +348,13 @@ export const updateSettings = async (req, res) => {
         tone: c.tone || "muted",
         emailMessage: String(c.emailMessage || "").slice(0, 2000),
         showImprovementAreas: Boolean(c.showImprovementAreas),
+        employeeIncrementPct: Number(c.employeeIncrementPct || 0),
+        leaderIncrementPct: Number(c.leaderIncrementPct || 0),
       }));
+      const badIncrement = list.find((c) =>
+        [c.employeeIncrementPct, c.leaderIncrementPct].some((v) => !Number.isFinite(v) || v < 0 || v > 100)
+      );
+      if (badIncrement) return fail(res, 400, `Increment % for "${badIncrement.label}" must be between 0 and 100`);
       const errors = validateClassifications(list, decimals);
       if (errors.length) return fail(res, 400, errors[0], { errors });
       next.classifications = list.sort((a, b) => a.min - b.min);

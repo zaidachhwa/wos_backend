@@ -13,6 +13,10 @@ process.env.ACCESS_TOKEN_SECRET ||= "appraisal-test-secret";
 process.env.REFRESH_TOKEN_SECRET ||= "appraisal-test-refresh";
 process.env.CLIENT_ORIGIN ||= "http://localhost:3000";
 delete process.env.RESEND_API_KEY; // belt and braces: no real mail from tests
+delete process.env.SMTP_HOST;
+delete process.env.SMTP_SERVICE;
+delete process.env.SMTP_USER;
+delete process.env.SMTP_PASS;
 
 const { default: app } = await import("../../src/app.js");
 const { default: User } = await import("../../src/models/User.js");
@@ -52,11 +56,15 @@ const call = async (fn) => {
 
 const MANUAL = ["discipline", "policy_compliance", "helping_nature", "professionalism", "critical_behaviour"];
 
-const rateAll = async (appraisalId, ratingKey = "excellent") => {
+// Completes every human input an appraisal needs: HR's manual ratings and
+// the Director's 0–20 assessment (required before finalization).
+const rateAll = async (appraisalId, ratingKey = "excellent", directorScore = 20) => {
   for (const key of MANUAL) {
     const r = await call(() => api.patch(`/appraisals/${appraisalId}/evaluations/${key}`, { ratingKey, comment: "ok" }, as("hr")));
     assert.equal(r.status, 200, r.data?.message);
   }
+  const d = await call(() => api.patch(`/appraisals/${appraisalId}/director-assessment`, { score: directorScore }, as("boss")));
+  assert.equal(d.status, 200, d.data?.message);
 };
 
 const appraisalFor = (who) => EmployeeAppraisal.findOne({ user: users[who]._id, month: MONTH });
@@ -90,6 +98,7 @@ before(async () => {
   users.sara = await mk("Sara", "member");
   users.outsider = await mk("Outsider", "member", { team: null });
   users.qa = await mk("Qa", "qa");
+  users.boss = await User.create({ name: "Boss", email: "boss@test.local", password: "x", role: "director" });
 
   // John's work this month: one task done on time, one left overdue.
   const project = await Project.create({ name: "Navy", manager: users.lead._id, members: [users.john._id], weightage: 40 });

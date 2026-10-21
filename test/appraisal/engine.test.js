@@ -7,6 +7,7 @@ import {
   computeAppraisal,
   criteriaForDepartment,
   identifyImprovementAreas,
+  incrementFor,
   validateDepartmentWeightage,
   scoreCriterion,
   validateClassifications,
@@ -223,19 +224,41 @@ describe("automatic criteria", () => {
 
 describe("classification", () => {
   const c = settings.classifications;
-  test("0–35 → Needs Improvement", () => {
-    assert.equal(classify(0, c).key, "needs_improvement");
-    assert.equal(classify(35, c).key, "needs_improvement");
-    assert.equal(classify(35.4, c).key, "needs_improvement");
+  // Company rating + increment table: [score, rating, employee %, team leader %]
+  const TABLE = [
+    [0, "Unsatisfactory", 0, 0],
+    [59, "Unsatisfactory", 0, 0],
+    [60, "Needs improvement", 3, 3],
+    [69, "Needs improvement", 3, 3],
+    [70, "Developing", 5, 6],
+    [79, "Developing", 5, 6],
+    [80, "Good", 7, 10],
+    [84, "Good", 7, 10],
+    [85, "Very good", 9, 14],
+    [89, "Very good", 9, 14],
+    [90, "Excellent", 12, 18],
+    [94, "Excellent", 12, 18],
+    [95, "Exceptional", 14, 22],
+    [97, "Exceptional", 14, 22],
+    [98, "Outstanding", 15, 25],
+    [100, "Outstanding", 15, 25],
+  ];
+  test("every row of the rating + increment table", () => {
+    for (const [score, label, emp, lead] of TABLE) {
+      const band = classify(score, c);
+      assert.equal(band.label, label, `score ${score}`);
+      assert.deepEqual(incrementFor(band, false), { group: "member", pct: emp }, `employee @ ${score}`);
+      assert.deepEqual(incrementFor(band, true), { group: "leader", pct: lead }, `team leader @ ${score}`);
+    }
   });
-  test("36–75 → Consistent Performance but Under the Acceptance Criteria", () => {
-    assert.equal(classify(36, c).label, "Consistent Performance but Under the Acceptance Criteria");
-    assert.equal(classify(74.16, c).key, "consistent");
-    assert.equal(classify(75, c).key, "consistent");
+  test("decimal scores round to whole numbers before matching", () => {
+    assert.equal(classify(59.4, c).label, "Unsatisfactory");
+    assert.equal(classify(59.5, c).label, "Needs improvement");
+    assert.equal(classify(84.49, c).label, "Good");
+    assert.equal(classify(97.6, c).label, "Outstanding");
   });
-  test("76–100 → Excellent Performance", () => {
-    assert.equal(classify(76, c).label, "Excellent Performance");
-    assert.equal(classify(100, c).key, "excellent");
+  test("the slabs tile 0–100 with no gaps or overlaps", () => {
+    assert.deepEqual(validateClassifications(c, 0), []);
   });
   test("thresholds are configurable and validated for overlap/gaps/coverage", () => {
     assert.deepEqual(validateClassifications(c, 0), []);

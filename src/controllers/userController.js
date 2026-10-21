@@ -2,6 +2,8 @@ import bcrypt from "bcrypt";
 
 import User from "../models/User.js";
 import Team from "../models/Team.js";
+import Task from "../models/Task.js";
+import Project from "../models/Project.js";
 import { paginationParams, paginationMeta } from "../utils/pagination.js";
 import { getManagedTeamIdsForActor, getManagedUserIds, resolveDepartmentScope } from "../utils/departmentScope.js";
 import { isValidShiftTime } from "../utils/shiftTime.js";
@@ -400,8 +402,11 @@ export const deleteUser = async (req, res) => {
         .status(400)
         .json({ success: false, message: "Cannot remove the last active admin" });
     }
-    target.isActive = false;
-    await target.save();
+    await Promise.all([
+      Task.updateMany({ assignees: target._id }, { $pull: { assignees: target._id } }),
+      Project.updateMany({ members: target._id }, { $pull: { members: target._id } }),
+      User.findByIdAndDelete(target._id),
+    ]);
     return res.json({ success: true, message: "User deleted", data: { user: target } });
   } catch (error) {
     return res.status(400).json({ success: false, message: error.message });
