@@ -5,11 +5,11 @@ import Project from "../../models/Project.js";
 import { EDITABLE_STATUSES, LEADER_ROLES } from "../../constants/appraisal.constants.js";
 import { buildConfigSnapshot, getActiveCriteria, getSettings } from "./appraisalConfig.js";
 import {
-  appliesToDepartment,
+  appliesToEmployee,
   classify,
   composeFinalScore,
   computeAppraisal,
-  criteriaForDepartment,
+  criteriaForEmployee,
   incrementFor,
   validateWeightage,
 } from "./appraisalEngine.js";
@@ -122,8 +122,8 @@ const recalcGroup = async (live, cfg, crit, now, { byDepartment }) => {
   });
 
   const userIds = live.map((d) => d.user._id || d.user);
-  const users = await User.find({ _id: { $in: userIds } }).select("department role");
-  const deptByUser = new Map(users.map((u) => [String(u._id), u.department || null]));
+  const users = await User.find({ _id: { $in: userIds } }).select("department team role designation");
+  const userById = new Map(users.map((u) => [String(u._id), u]));
   // Increment group: leader roles, or anyone currently managing a project.
   const projectManagers = new Set(
     (await Project.find({ manager: { $in: userIds }, status: { $nin: ["completed", "cancelled"] } }).distinct("manager")).map(String)
@@ -134,7 +134,7 @@ const recalcGroup = async (live, cfg, crit, now, { byDepartment }) => {
   for (const doc of live) {
     const key = String(doc.user._id || doc.user);
     const metrics = metricsByUser.get(key);
-    const applicable = byDepartment ? criteriaForDepartment(crit, deptByUser.get(key)) : crit;
+    const applicable = byDepartment ? criteriaForEmployee(crit, userById.get(key) || {}) : crit;
     const result = computeAppraisal({ criteria: applicable, settings: cfg, metrics, evaluations: doc.evaluations || [] });
     // Criteria (out of 100) + Director (out of 20) → out of 100, + bonus.
     const directorScore = doc.directorAssessment?.score ?? null;
@@ -156,7 +156,7 @@ const recalcGroup = async (live, cfg, crit, now, { byDepartment }) => {
       metricsSnapshot: metrics,
       calculatedAt: now,
       status: deriveStatus(doc, result, now),
-      department: deptByUser.get(key) ?? doc.department,
+      department: userById.get(key)?.department ?? doc.department,
     };
     Object.assign(doc, update);
     doc._complete = result.complete;
@@ -328,9 +328,9 @@ export const setEvaluation = async (doc, criterionKey, input, actor) => {
     : await AppraisalCriterion.findOne({ key: criterionKey, isActive: true }).lean();
   if (!criterion) throw new AppraisalError("Criterion not found or inactive", 404);
   if (!snap) {
-    const employee = await User.findById(doc.user).select("department").lean();
-    if (!appliesToDepartment(criterion, employee?.department)) {
-      throw new AppraisalError("This criterion doesn't apply to this employee's department");
+    const employee = await User.findById(doc.user).select("department team role designation").lean();
+    if (!appliesToEmployee(criterion, employee || {})) {
+      throw new AppraisalError("This criterion doesn't apply to this employee's department, team or position");
     }
   }
   if (criterion.type === "automatic") throw new AppraisalError("Automatic criteria are calculated by the system and can't be rated");
@@ -412,9 +412,9 @@ export const finalizeAppraisal = async (doc, actor, { now = new Date(), settings
   const employee = await User.findById(doc.user).select(EMPLOYEE_FIELDS).populate("department", "name").populate("team", "name");
   const snap = snapshotConfig(doc);
   const cfg = snap?.settings || settings || (await getSettings());
-  // Only the criteria that apply to this employee's department — that set
-  // must total 100%, and it's exactly what gets snapshotted.
-  const crit = snap?.criteria || criteriaForDepartment(criteria || (await getActiveCriteria()), employee?.department?._id);
+  // Only the criteria that apply to this employee's department, team and
+  // position: that set must total 100%, and it's exactly what gets snapshotted.
+  const crit = snap?.criteria || criteriaForEmployee(criteria || (await getActiveCriteria()), employee || {});
   const weight = validateWeightage(crit);
   if (!weight.valid) {
     throw new AppraisalError(`${employee?.department?.name || "No department"}: ${weight.message}`, 422);

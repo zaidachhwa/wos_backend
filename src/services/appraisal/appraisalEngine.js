@@ -397,16 +397,66 @@ export const criteriaForDepartmentAndPosition = (criteria, departmentId, positio
     .filter((c) => appliesToDepartmentAndPosition(c, departmentId, position))
     .map((c) => ({ ...c, weightage: effectiveWeightage(c, departmentId) }));
 
+// A criterion with no teams applies to every team (and to employees with
+// none); otherwise only to members of the listed teams.
+export const appliesToTeam = (criterion, teamId) => {
+  const list = criterion.teams || [];
+  if (!list.length) return true;
+  return Boolean(teamId) && list.some((t) => String(t?._id || t) === String(teamId));
+};
+
+const idOf = (v) => (v && typeof v === "object" && v._id ? v._id : v) || null;
+
+// Full targeting for one employee: department, team and position (base role,
+// with designation as a fallback for criteria saved before positions were
+// roles). `employee` = { department, team, role, designation }, ids or
+// populated docs.
+export const appliesToEmployee = (criterion, employee = {}) =>
+  appliesToDepartment(criterion, idOf(employee.department)) &&
+  appliesToTeam(criterion, idOf(employee.team)) &&
+  appliesToPosition(criterion, [employee.role, employee.designation]);
+
+// The criteria that apply to one employee, each carrying their department's
+// effective weightage: what the engine scores and a finalized appraisal
+// snapshots.
+export const criteriaForEmployee = (criteria, employee = {}) =>
+  criteria
+    .filter((c) => appliesToEmployee(c, employee))
+    .map((c) => ({ ...c, weightage: effectiveWeightage(c, idOf(employee.department)) }));
+
 // The 100% rule, per department: every department's applicable active
 // criteria must total exactly 100%. `departments` = [{ _id, name }]; pass
 // includeUnassigned when some appraised employees have no department (they
 // only get the all-department criteria).
-export const validateDepartmentWeightage = (activeCriteria, departments = [], { includeUnassigned = false } = {}) => {
+//
+// When criteria are also targeted by team or position, one department total
+// means nothing, so each department is checked once per employee profile
+// ({ role, team, teamName }) found in it; `profiles` maps departmentId
+// ("" for none) to that list. A department without profiles gets one
+// untargeted check, as before.
+export const validateDepartmentWeightage = (activeCriteria, departments = [], { includeUnassigned = false, profiles = {} } = {}) => {
   const scopes = departments.map((d) => ({ departmentId: String(d._id), name: d.name }));
   if (includeUnassigned || !scopes.length) scopes.push({ departmentId: null, name: departments.length ? "No department" : "All departments" });
+  const targeted = activeCriteria.some((c) => (c.positions || []).length || (c.teams || []).length);
   const byDepartment = scopes.map((s) => {
-    const r = validateWeightage(criteriaForDepartment(activeCriteria, s.departmentId));
-    return { ...s, total: r.total, valid: r.valid, message: r.message };
+    const own = targeted ? profiles[s.departmentId || ""] || [] : [];
+    if (!own.length) {
+      const r = validateWeightage(criteriaForDepartment(activeCriteria, s.departmentId));
+      return { ...s, total: r.total, valid: r.valid, message: r.message };
+    }
+    const checks = own.map((p) => ({
+      p,
+      r: validateWeightage(criteriaForEmployee(activeCriteria, { department: s.departmentId, team: p.team, role: p.role })),
+    }));
+    const bad = checks.filter((c) => !c.r.valid);
+    const shown = (bad[0] || checks[0]).r;
+    const who = (p) => [p.role, p.teamName].filter(Boolean).join(" / ") || "no role";
+    return {
+      ...s,
+      total: shown.total,
+      valid: bad.length === 0,
+      message: bad.length ? bad.map((c) => `(${who(c.p)}) ${c.r.message}`).join(" ") : checks[0].r.message,
+    };
   });
   const invalid = byDepartment.filter((d) => !d.valid);
   return {

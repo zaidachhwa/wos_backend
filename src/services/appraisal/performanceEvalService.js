@@ -4,8 +4,8 @@ import User from "../../models/User.js";
 import { getSettings } from "./appraisalConfig.js";
 import { canManage, canViewAll, managedIdSet } from "./appraisalAccess.js";
 import { audit } from "./appraisalAudit.js";
-import { getPeriodBounds, getExpectedPeriodsForMonth } from "./performancePeriod.js";
-import { appliesToDepartmentAndPosition, effectiveWeightage } from "./appraisalEngine.js";
+import { getPeriodBounds, getExpectedPeriodsForMonth, getMonthBounds } from "./performancePeriod.js";
+import { appliesToEmployee, effectiveWeightage } from "./appraisalEngine.js";
 import { roundStore, roundDisplay } from "./appraisalMath.js";
 import { istDayStr } from "../../utils/istTime.js";
 
@@ -19,7 +19,7 @@ const checkEvaluatorAccess = async (actor, targetEmployeeId) => {
 };
 
 export const recordEvaluation = async ({ employeeId, criterionId, date, rating, comment = "", user }) => {
-  const targetUser = await User.findById(employeeId).select("_id name department designation isActive role");
+  const targetUser = await User.findById(employeeId).select("_id name department team designation isActive role");
   if (!targetUser || !targetUser.isActive) {
     throw new Error("Employee not found or inactive");
   }
@@ -33,9 +33,9 @@ export const recordEvaluation = async ({ employeeId, criterionId, date, rating, 
     throw new Error("Criterion not found or inactive");
   }
 
-  // Validate department & position assignment
-  if (!appliesToDepartmentAndPosition(criterion, targetUser.department, [targetUser.role, targetUser.designation])) {
-    throw new Error(`This criterion does not apply to the employee's department/position (${targetUser.role}${targetUser.designation ? `, ${targetUser.designation}` : ""})`);
+  // Validate department, team & position assignment
+  if (!appliesToEmployee(criterion, targetUser)) {
+    throw new Error(`This criterion does not apply to the employee's department, team or position (${targetUser.role})`);
   }
 
   const validRatings = ["poor", "average", "good"];
@@ -178,8 +178,9 @@ export const calculateMonthlyPerformance = async ({ employeeId, month }) => {
   const monthStr = month || istDayStr().slice(0, 7);
 
   const employee = await User.findById(employeeId)
-    .select("_id name designation department role isActive")
+    .select("_id name designation department team role isActive")
     .populate("department", "name")
+    .populate("team", "name")
     .lean();
 
   if (!employee) throw new Error("Employee not found");
@@ -192,9 +193,9 @@ export const calculateMonthlyPerformance = async ({ employeeId, month }) => {
     .sort({ sortOrder: 1, createdAt: 1 })
     .lean();
 
-  // Filter criteria applicable to employee's department and designation
+  // Filter criteria applicable to employee's department, team and position
   const applicableCriteria = allActiveCriteria
-    .filter((c) => appliesToDepartmentAndPosition(c, employee.department?._id, [employee.role, employee.designation]))
+    .filter((c) => appliesToEmployee(c, employee))
     .map((c) => ({ ...c, effectiveWeight: effectiveWeightage(c, employee.department?._id) }));
 
   // Separate top-level criteria and sub-criteria
@@ -235,6 +236,9 @@ export const calculateMonthlyPerformance = async ({ employeeId, month }) => {
 
     const recordedStartDates = new Set(recorded.map((r) => r.period.startDate));
     const incomplete = expected.filter((p) => !recordedStartDates.has(p.startDate));
+    // One slot per expected period (e.g. each week of a monthly criterion),
+    // carrying the mark recorded for it, or null when not yet marked.
+    const periods = expected.map((p) => ({ ...p, evaluation: recorded.find((r) => r.period.startDate === p.startDate) || null }));
 
     if (incomplete.length > 0) {
       missingEvaluations.push({
@@ -245,14 +249,22 @@ export const calculateMonthlyPerformance = async ({ employeeId, month }) => {
       });
     }
 
+    // The month's score is the average of the marked slots (e.g. the weekly
+    // marks of a monthly criterion). Records that match no slot — saved under
+    // older period rules — are only used when no slot is marked at all.
+    const slotMarks = periods.filter((p) => p.evaluation).map((p) => p.evaluation);
+    const scored = slotMarks.length ? slotMarks : recorded;
     const ratingsCount = { poor: 0, average: 0, good: 0 };
     let sumScore = 0;
-    for (const r of recorded) {
+    for (const r of scored) {
       ratingsCount[r.rating] = (ratingsCount[r.rating] || 0) + 1;
       sumScore += (r.numericScore ?? scoringScale[r.rating] ?? 50);
     }
 
-    const avgNumericScore = recorded.length ? roundStore(sumScore / recorded.length) : null;
+    const avgNumericScore = scored.length ? roundStore(sumScore / scored.length) : null;
+    const averageCalc = scored.length
+      ? `Average of ${scored.length} mark(s): (${scored.map((r) => roundDisplay(r.numericScore ?? scoringScale[r.rating] ?? 50)).join(" + ")}) / ${scored.length} = ${roundDisplay(avgNumericScore)}%`
+      : "No marks recorded yet";
     const isComplete = incomplete.length === 0 && recorded.length > 0;
 
     return {
@@ -265,10 +277,12 @@ export const calculateMonthlyPerformance = async ({ employeeId, month }) => {
       recordedCount: recorded.length,
       incompleteCount: incomplete.length,
       incompletePeriods: incomplete,
+      periods,
       isComplete,
       ratingsCount,
       evaluations: recorded,
       avgNumericScore,
+      averageCalc,
     };
   };
 
@@ -335,9 +349,12 @@ export const calculateMonthlyPerformance = async ({ employeeId, month }) => {
       _id: employee._id,
       name: employee.name,
       designation: employee.designation,
+      role: employee.role,
       department: employee.department ? { _id: employee.department._id, name: employee.department.name } : null,
+      team: employee.team ? { _id: employee.team._id, name: employee.team.name } : null,
     },
     month: monthStr,
+    monthBounds: getMonthBounds(monthStr),
     scoringScale,
     totalWeightage: roundStore(totalWeightage),
     totalScore: finalTotalScore,

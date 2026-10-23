@@ -43,7 +43,11 @@ const appraisalCriterionSchema = new mongoose.Schema(
     // employees without one). Each department's applicable active criteria
     // must total exactly 100% (see validateDepartmentWeightage).
     departments: [{ type: mongoose.Schema.Types.ObjectId, ref: "Department" }],
-    // Positions / designations this criterion applies to. Empty = all positions.
+    // Teams this criterion applies to. Empty = all teams (and employees
+    // without one).
+    teams: [{ type: mongoose.Schema.Types.ObjectId, ref: "Team" }],
+    // Base permission roles (ROLES) this criterion applies to. Empty = all.
+    // Older criteria may hold free-text designations, still matched.
     positions: [{ type: String, trim: true }],
     // Per-department weightage overrides; a department without one uses
     // `weightage` above (the default).

@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import AppraisalCriterion from "../models/AppraisalCriterion.js";
 import AppraisalSettings from "../models/AppraisalSettings.js";
 import Department from "../models/Department.js";
+import Team from "../models/Team.js";
 import { BUG_STATUSES, CRITERION_TYPES, METRICS, SCORING_METHODS } from "../constants/appraisal.constants.js";
 import { ROLES } from "../constants/roles.constants.js";
 import { getAllCriteria, getSettings, weightageStatus } from "../services/appraisal/appraisalConfig.js";
@@ -31,6 +32,7 @@ const CRITERION_FIELDS = [
   "parentCriterion",
   "frequency",
   "positions",
+  "teams",
   "scoreFromSubCriteria",
 ];
 
@@ -112,6 +114,7 @@ const normalizeCriterion = (body, existing = {}) => {
   // Stored as sorted id strings so an unchanged selection never diffs.
   c.departments = [...new Set((c.departments || []).map((d) => String(d?._id || d)))].sort();
   c.departmentWeightages = normalizeDeptWeightages(c.departmentWeightages, c.departments);
+  c.teams = [...new Set((c.teams || []).map((t) => String(t?._id || t)))].sort();
   return c;
 };
 
@@ -123,6 +126,19 @@ const invalidDepartments = async (c) => {
   if (!ids.every((id) => mongoose.isValidObjectId(id))) return "Invalid department";
   const found = await Department.countDocuments({ _id: { $in: ids } });
   return found === ids.length ? null : "One or more selected departments no longer exist";
+};
+
+// Every team id must be a real team, inside one of the criterion's departments
+// when it is limited to some.
+const invalidTeams = async (c) => {
+  if (!c.teams.length) return null;
+  if (!c.teams.every((id) => mongoose.isValidObjectId(id))) return "Invalid team";
+  const teams = await Team.find({ _id: { $in: c.teams } }).select("department").lean();
+  if (teams.length !== c.teams.length) return "One or more selected teams no longer exist";
+  if (c.departments.length && teams.some((t) => !c.departments.includes(String(t.department)))) {
+    return "Selected teams must belong to the selected departments";
+  }
+  return null;
 };
 
 // Saving is never blocked by the 100% rule — HR often reduces existing
@@ -161,7 +177,7 @@ export const createCriterion = async (req, res) => {
     if (await AppraisalCriterion.exists({ key: c.key })) return fail(res, 409, `A criterion with key "${c.key}" already exists`);
     const errors = validateCriterion(c);
     if (errors.length) return fail(res, 400, errors[0], { errors });
-    const deptError = deptWeightageError(c) || (await invalidDepartments(c));
+    const deptError = deptWeightageError(c) || (await invalidDepartments(c)) || (await invalidTeams(c));
     if (deptError) return fail(res, 400, deptError);
     const max = await AppraisalCriterion.findOne().sort({ sortOrder: -1 }).select("sortOrder").lean();
     const created = await AppraisalCriterion.create({ ...c, sortOrder: (max?.sortOrder ?? -1) + 1, createdBy: req.user._id, updatedBy: req.user._id });
@@ -182,7 +198,7 @@ export const updateCriterion = async (req, res) => {
     const next = normalizeCriterion(req.body, existing);
     const errors = validateCriterion(next);
     if (errors.length) return fail(res, 400, errors[0], { errors });
-    const deptError = deptWeightageError(next) || (await invalidDepartments(next));
+    const deptError = deptWeightageError(next) || (await invalidDepartments(next)) || (await invalidTeams(next));
     if (deptError) return fail(res, 400, deptError);
     const changes = diffFields(before, next, CRITERION_FIELDS);
     if (!changes) return res.json({ success: true, message: "No changes", data: { criterion: existing } });

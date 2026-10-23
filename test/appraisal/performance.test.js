@@ -5,10 +5,14 @@ import {
   getPeriodBounds,
   getExpectedPeriodsForMonth,
   daysInMonth,
+  getMonthBounds,
 } from "../../src/services/appraisal/performancePeriod.js";
 import {
   appliesToPosition,
   appliesToDepartmentAndPosition,
+  appliesToEmployee,
+  criteriaForEmployee,
+  validateDepartmentWeightage,
   validateWeightage,
   validateSubCriteriaWeightage,
 } from "../../src/services/appraisal/appraisalEngine.js";
@@ -69,10 +73,17 @@ describe("performance evaluation periods", () => {
     assert.equal(prev.endDate, "2026-10-03");
   });
 
-  test("monthly period bounds span the whole calendar month", () => {
-    const p = getPeriodBounds("monthly", "2026-09-15");
-    assert.equal(p.startDate, "2026-09-01");
-    assert.equal(p.endDate, "2026-09-30");
+  test("monthly criteria are marked once per week of the month", () => {
+    const p = getPeriodBounds("monthly", "2026-09-16");
+    assert.equal(p.frequency, "monthly");
+    assert.equal(p.startDate, "2026-09-14");
+    assert.equal(p.endDate, "2026-09-19");
+    assert.equal(p.month, "2026-09");
+    assert.equal(p.label, "Week 2 (2026-09-14 to 2026-09-19)");
+
+    const m = getMonthBounds("2026-09");
+    assert.equal(m.startDate, "2026-09-01");
+    assert.equal(m.endDate, "2026-09-30");
   });
 
   test("expected periods for month", () => {
@@ -106,9 +117,10 @@ describe("performance evaluation periods", () => {
     }
 
     const monthlyPeriods = getExpectedPeriodsForMonth("monthly", "2026-10");
-    assert.equal(monthlyPeriods.length, 1);
-    assert.equal(monthlyPeriods[0].startDate, "2026-10-01");
-    assert.equal(monthlyPeriods[0].endDate, "2026-10-31");
+    assert.equal(monthlyPeriods.length, 4); // one mark per week
+    assert.equal(monthlyPeriods[0].startDate, "2026-10-05");
+    assert.equal(monthlyPeriods[3].endDate, "2026-10-31");
+    assert.ok(monthlyPeriods.every((p) => p.frequency === "monthly" && p.month === "2026-10"));
   });
 });
 
@@ -140,6 +152,43 @@ describe("position and sub-criteria criteria matching", () => {
     assert.ok(appliesToPosition(criterion, ["member", "sublead"])); // legacy designation match
     assert.ok(!appliesToPosition(criterion, ["member", "Developer"]));
     assert.ok(!appliesToPosition(criterion, [null, ""]));
+  });
+
+  test("appliesToEmployee combines department, team and position", () => {
+    const memberOnly = { positions: ["member"] };
+    assert.ok(appliesToEmployee(memberOnly, { role: "member" }));
+    assert.ok(!appliesToEmployee(memberOnly, { role: "manager" }));
+
+    const teamOnly = { departments: ["d1"], teams: ["t1"] };
+    assert.ok(appliesToEmployee(teamOnly, { department: "d1", team: { _id: "t1" }, role: "qa" }));
+    assert.ok(!appliesToEmployee(teamOnly, { department: "d1", team: "t2", role: "qa" }));
+    assert.ok(!appliesToEmployee(teamOnly, { department: "d1", team: null, role: "qa" }));
+  });
+
+  test("criteriaForEmployee only returns the employee's own criteria", () => {
+    const all = [
+      { key: "common", weightage: 50 },
+      { key: "member_only", weightage: 50, positions: ["member"] },
+      { key: "manager_only", weightage: 50, positions: ["manager"] },
+    ];
+    assert.deepEqual(criteriaForEmployee(all, { role: "member" }).map((c) => c.key), ["common", "member_only"]);
+    assert.deepEqual(criteriaForEmployee(all, { role: "manager" }).map((c) => c.key), ["common", "manager_only"]);
+  });
+
+  test("department weightage is checked per role when criteria target positions", () => {
+    const all = [
+      { key: "common", weightage: 50 },
+      { key: "member_only", weightage: 50, positions: ["member"] },
+      { key: "manager_only", weightage: 40, positions: ["manager"] },
+    ];
+    const departments = [{ _id: "d1", name: "Dev" }];
+    const ok = validateDepartmentWeightage(all, departments, { profiles: { d1: [{ role: "member", team: null }] } });
+    assert.ok(ok.valid);
+    const bad = validateDepartmentWeightage(all, departments, {
+      profiles: { d1: [{ role: "member", team: null }, { role: "manager", team: null }] },
+    });
+    assert.ok(!bad.valid);
+    assert.match(bad.message, /manager/);
   });
 
   test("weightage validation isolates sub-criteria from top-level criteria", () => {

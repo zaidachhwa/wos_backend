@@ -131,8 +131,9 @@ export const getEvaluatableEmployees = async (req, res) => {
       filter._id = { $in: managed };
     }
     const employees = await User.find(filter)
-      .select("name designation department role")
+      .select("name designation department team role")
       .populate("department", "name")
+      .populate("team", "name")
       .sort("name")
       .lean();
 

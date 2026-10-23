@@ -66,11 +66,20 @@ export const getAllCriteria = () => AppraisalCriterion.find().sort({ sortOrder: 
 // department actually exist.
 export const weightageStatus = async (activeCriteria, settings) => {
   const cfg = settings || (await getSettings());
-  const [departments, unassigned] = await Promise.all([
+  const [departments, unassigned, people] = await Promise.all([
     Department.find().select("name").sort("name").lean(),
     User.exists({ isActive: true, role: { $in: cfg.appraisedRoles || [] }, department: null }),
+    User.find({ isActive: true, role: { $in: cfg.appraisedRoles || [] } }).select("department team role").populate("team", "name").lean(),
   ]);
-  return validateDepartmentWeightage(activeCriteria, departments, { includeUnassigned: Boolean(unassigned) });
+  // Distinct (role, team) combinations per department, for team/position-targeted criteria.
+  const profiles = {};
+  for (const u of people) {
+    const dept = u.department ? String(u.department) : "";
+    const team = u.team?._id ? String(u.team._id) : null;
+    const list = (profiles[dept] ||= []);
+    if (!list.some((p) => p.role === u.role && p.team === team)) list.push({ role: u.role, team, teamName: u.team?.name || "" });
+  }
+  return validateDepartmentWeightage(activeCriteria, departments, { includeUnassigned: Boolean(unassigned), profiles });
 };
 
 // A frozen copy of everything that shaped a score — stored on each
@@ -90,6 +99,8 @@ export const buildConfigSnapshot = (criteria, settings) => ({
     params: c.params,
     ratingOptions: c.ratingOptions,
     departments: (c.departments || []).map(String),
+    teams: (c.teams || []).map(String),
+    positions: c.positions || [],
     sortOrder: c.sortOrder,
   })),
   bugSeverities: settings.bugSeverities,
