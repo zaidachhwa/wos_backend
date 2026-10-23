@@ -248,7 +248,7 @@ export const bulkUpdateDirectorInputs = async (req, res) => {
 
 const criteriaMetaFor = async (doc) => {
   const source = ["finalized", "reopened"].includes(doc.status) && doc.configSnapshot ? doc.configSnapshot.criteria : await getActiveCriteria();
-  return source.map((c) => ({ key: c.key, name: c.name, description: c.description, type: c.type, group: c.group, ratingOptions: c.ratingOptions || [] }));
+  return source.map((c) => ({ key: c.key, name: c.name, description: c.description, type: c.type, group: c.group, frequency: c.frequency || "monthly", ratingOptions: c.ratingOptions || [] }));
 };
 
 const detailPayload = async (doc, user) => {

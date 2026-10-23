@@ -1,5 +1,6 @@
 import { CRITERION_TYPES, METRICS, SCORING_METHODS, EVALUATION_FREQUENCIES } from "../../constants/appraisal.constants.js";
 import { clamp, roundDisplay, roundStore, roundTo, toHundredths } from "./appraisalMath.js";
+import { getExpectedPeriodsForMonth } from "./performancePeriod.js";
 
 // The centralized, configuration-driven appraisal calculator. Pure: no DB,
 // no clock — it takes criteria + settings + collected metrics + HR input and
@@ -172,7 +173,47 @@ export const applyScoringMethod = (method, value, params = {}) => {
 
 // ---------------------------------------------------------------- criterion
 
-export const scoreCriterion = (criterion, metrics, evaluation = null) => {
+// Manual criteria rated more often than monthly (daily/weekly/biweekly) get
+// one rating per period of the appraisal month; their performance is the
+// average of the rated periods.
+export const PERIODIC_FREQUENCIES = ["daily", "weekly", "biweekly"];
+export const isPeriodic = (criterion) => criterion?.type === "manual" && PERIODIC_FREQUENCIES.includes(criterion?.frequency);
+
+const scorePeriodicRating = (criterion, evaluation, month, base) => {
+  const weight = base.weightage;
+  const optionByKey = new Map((criterion.ratingOptions || []).map((o) => [o.key, o]));
+  const ratedByStart = new Map((evaluation?.periodRatings || []).map((r) => [r.startDate, r]));
+  base.source = "HR evaluation";
+  base.frequency = criterion.frequency;
+  base.periods = getExpectedPeriodsForMonth(criterion.frequency, month).map((p) => {
+    const option = optionByKey.get(ratedByStart.get(p.startDate)?.ratingKey);
+    return {
+      startDate: p.startDate,
+      endDate: p.endDate,
+      label: p.label,
+      ratingKey: option?.key || null,
+      ratingLabel: option?.label || null,
+      pct: option ? roundStore(clamp(Number(option.pct), 0, 100)) : null,
+    };
+  });
+  const rated = base.periods.filter((p) => p.pct !== null);
+  for (const p of base.periods) base.steps.push(`${p.label}: ${p.ratingLabel ? `${p.ratingLabel} = ${pctStr(p.pct)}` : "not rated"}`);
+  base.complete = rated.length === base.periods.length && rated.length > 0;
+  if (!rated.length) {
+    base.steps.push("Not rated yet");
+    return base;
+  }
+  base.performancePct = roundStore(rated.reduce((s, p) => s + p.pct, 0) / rated.length);
+  base.ratingLabel = `${rated.length}/${base.periods.length} rated`;
+  base.score = roundStore((weight * base.performancePct) / 100);
+  base.steps.push(
+    `Average = (${rated.map((p) => fmt(p.pct)).join(" + ")}) / ${rated.length} = ${pctStr(base.performancePct)}`,
+    `Score = ${fmt(weight)} × ${pctStr(base.performancePct)} = ${fmt(base.score)} / ${fmt(weight)}`
+  );
+  return base;
+};
+
+export const scoreCriterion = (criterion, metrics, evaluation = null, { month } = {}) => {
   const weight = Number(criterion.weightage);
   const base = {
     criterionKey: criterion.key,
@@ -199,6 +240,8 @@ export const scoreCriterion = (criterion, metrics, evaluation = null) => {
     source: "",
     steps: [`Weightage: ${fmt(weight)}%`],
   };
+
+  if (criterion.scoringMethod === "rating" && month && isPeriodic(criterion)) return scorePeriodicRating(criterion, evaluation, month, base);
 
   if (criterion.scoringMethod === "rating") {
     const option = (criterion.ratingOptions || []).find((o) => o.key === evaluation?.ratingKey);
@@ -296,17 +339,73 @@ export const identifyImprovementAreas = (entries, rule = {}) => {
     }));
 };
 
-export const computeAppraisal = ({ criteria, settings, metrics, evaluations = [] }) => {
+const idStr = (v) => (v === null || v === undefined ? "" : String(v?._id || v));
+
+// A main criterion whose score comes from its sub-criteria: its sub-criteria
+// share the main criterion's points in proportion to their weightages, and
+// the main criterion's score is the sum of theirs.
+//   e.g. main 15 pts, 4 subs of equal weightage → 3.75 pts each; ratings
+//   Poor/Good/Good/Good → 0.94 + 3.75 + 3.75 + 3.75 = 12.19 / 15
+const scoreWithSubCriteria = (main, subs, metrics, evalByKey, opts) => {
+  const weight = Number(main.weightage);
+  const subTotal = subs.reduce((s, c) => s + Number(c.weightage || 0), 0);
+  const subEntries = subs.map((c) => {
+    const share = subTotal > 0 ? (weight * Number(c.weightage || 0)) / subTotal : weight / subs.length;
+    const entry = scoreCriterion({ ...c, weightage: roundStore(share) }, metrics, evalByKey.get(c.key), opts);
+    return { ...entry, group: main.group || entry.group, parentKey: main.key };
+  });
+  const score = roundStore(subEntries.reduce((s, e) => s + (e.score || 0), 0));
+  const complete = subEntries.every((e) => e.complete);
+  return [
+    {
+      ...scoreCriterion({ ...main, scoringMethod: "rating", ratingOptions: [] }, metrics, null),
+      source: "Sum of sub-criteria",
+      hasSubCriteria: true,
+      score,
+      maxScore: weight,
+      performancePct: complete && weight > 0 ? roundStore((score / weight) * 100) : null,
+      complete,
+      steps: [
+        `Weightage: ${fmt(weight)}% — shared by ${subEntries.length} sub-criteria`,
+        ...subEntries.map((e) => `${e.name}: ${fmt(e.score)} / ${fmt(e.maxScore)}${e.ratingLabel ? ` (${e.ratingLabel})` : e.complete ? "" : " (not rated)"}`),
+        `Score = ${subEntries.map((e) => fmt(e.score)).join(" + ")} = ${fmt(score)} / ${fmt(weight)}`,
+      ],
+    },
+    ...subEntries,
+  ];
+};
+
+// Scores every criterion. Sub-criteria never add to the total on their own:
+// under a main criterion that scores from them they roll up into it (see
+// scoreWithSubCriteria) and the entries carry `parentKey`; otherwise (main
+// rated directly, inactive or not applicable) they are left out.
+export const computeAppraisal = ({ criteria, settings, metrics, evaluations = [], month = null }) => {
+  const opts = { month };
   const evalByKey = new Map(evaluations.map((e) => [e.criterionKey, e]));
-  const entries = criteria.map((c) => scoreCriterion(c, metrics, evalByKey.get(c.key)));
-  const rawTotal = entries.reduce((sum, e) => sum + (e.score || 0), 0);
+  const subsByParent = new Map();
+  for (const c of criteria) {
+    if (!c.parentCriterion) continue;
+    const pid = idStr(c.parentCriterion);
+    if (!subsByParent.has(pid)) subsByParent.set(pid, []);
+    subsByParent.get(pid).push(c);
+  }
+  const entries = [];
+  for (const c of criteria) {
+    if (c.parentCriterion) continue;
+    const subs = subsByParent.get(idStr(c._id)) || [];
+    if (subs.length && c.scoreFromSubCriteria !== false) entries.push(...scoreWithSubCriteria(c, subs, metrics, evalByKey, opts));
+    else entries.push(scoreCriterion(c, metrics, evalByKey.get(c.key), opts));
+  }
+  const topLevel = entries.filter((e) => !e.parentKey);
+  const rawTotal = topLevel.reduce((sum, e) => sum + (e.score || 0), 0);
   const totalScore = roundStore(clamp(rawTotal, 0, 100));
-  const missingInputs = entries.filter((e) => !e.complete).map((e) => e.name);
+  // Name the sub-criteria still to rate, not the main criterion they roll into.
+  const missingInputs = entries.filter((e) => !e.complete && !e.hasSubCriteria).map((e) => e.name);
   return {
     entries,
     totalScore,
     classification: classify(totalScore, settings?.classifications, settings?.classificationDecimals ?? 0),
-    improvementAreas: identifyImprovementAreas(entries, settings?.improvementRule),
+    improvementAreas: identifyImprovementAreas(entries.filter((e) => !e.hasSubCriteria), settings?.improvementRule),
     missingInputs,
     complete: missingInputs.length === 0,
   };

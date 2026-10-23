@@ -6,9 +6,7 @@
 //   weekly   — Monday to Saturday (Sunday belongs to the week before it)
 //   biweekly — two working weeks: 1st Monday to 2nd Saturday, 3rd Monday to
 //              4th Saturday (a 5th week in the month joins the second period)
-//   monthly  — the calendar month (1st to last day), marked once per working
-//              week (same Monday–Saturday slots as weekly); the month's score
-//              is the average of those weekly marks
+//   monthly  — 1st to last day of the calendar month (one mark per month)
 //
 // A week (and so a biweekly period) belongs to the month its Monday falls in,
 // so days before a month's first Monday count towards the previous month.
@@ -49,12 +47,12 @@ const mondaysOfMonth = (monthStr) => {
   return mondays;
 };
 
-const weekPeriod = (monday, frequency = "weekly") => {
+const weekPeriod = (monday) => {
   const start = toYMD(monday);
   const end = toYMD(addDays(monday, 5));
   const month = start.slice(0, 7);
   const n = mondaysOfMonth(month).findIndex((m) => toYMD(m) === start) + 1;
-  return { frequency, startDate: start, endDate: end, month, label: `Week ${n} (${start} to ${end})` };
+  return { frequency: "weekly", startDate: start, endDate: end, month, label: `Week ${n} (${start} to ${end})` };
 };
 
 // The biweekly periods of a month: weeks 1–2, then weeks 3–4 (+5).
@@ -79,7 +77,7 @@ const monthPeriod = (monthStr) => {
   };
 };
 
-// The whole calendar month a monthly criterion's weekly marks roll up into.
+// The whole calendar month.
 export const getMonthBounds = (monthStr) => monthPeriod(monthStr);
 
 export const getPeriodBounds = (frequency, dateStr) => {
@@ -100,7 +98,7 @@ export const getPeriodBounds = (frequency, dateStr) => {
 
     case "monthly":
     default:
-      return weekPeriod(mondayOf(parseYMD(dateStr)), "monthly");
+      return monthPeriod(dateStr.slice(0, 7));
   }
 };
 
@@ -123,6 +121,6 @@ export const getExpectedPeriodsForMonth = (frequency, monthStr) => {
 
     case "monthly":
     default:
-      return mondaysOfMonth(monthStr).map((m) => weekPeriod(m, "monthly"));
+      return [monthPeriod(monthStr)];
   }
 };

@@ -11,8 +11,10 @@ import {
   computeAppraisal,
   criteriaForEmployee,
   incrementFor,
+  isPeriodic,
   validateWeightage,
 } from "./appraisalEngine.js";
+import { getExpectedPeriodsForMonth } from "./performancePeriod.js";
 import { collectMetrics } from "./appraisalMetrics.js";
 import { hasMonthEnded, monthPeriod } from "./appraisalPeriod.js";
 import { roundStore } from "./appraisalMath.js";
@@ -135,7 +137,7 @@ const recalcGroup = async (live, cfg, crit, now, { byDepartment }) => {
     const key = String(doc.user._id || doc.user);
     const metrics = metricsByUser.get(key);
     const applicable = byDepartment ? criteriaForEmployee(crit, userById.get(key) || {}) : crit;
-    const result = computeAppraisal({ criteria: applicable, settings: cfg, metrics, evaluations: doc.evaluations || [] });
+    const result = computeAppraisal({ criteria: applicable, settings: cfg, metrics, evaluations: doc.evaluations || [], month });
     // Criteria (out of 100) + Director (out of 20) → out of 100, + bonus.
     const directorScore = doc.directorAssessment?.score ?? null;
     const final = composeFinalScore({ baseScore: result.totalScore, directorScore, bonusPct: doc.specialBonus?.pct ?? 0 });
@@ -336,10 +338,22 @@ export const setEvaluation = async (doc, criterionKey, input, actor) => {
   if (criterion.type === "automatic") throw new AppraisalError("Automatic criteria are calculated by the system and can't be rated");
 
   const existing = (doc.evaluations || []).find((e) => e.criterionKey === criterionKey);
-  const before = existing ? { ratingKey: existing.ratingKey, overridePct: existing.overridePct, comment: existing.comment } : null;
+  const before = existing
+    ? { ratingKey: existing.ratingKey, overridePct: existing.overridePct, comment: existing.comment, periodRatings: (existing.periodRatings || []).map((r) => ({ ...(r.toObject ? r.toObject() : r) })) }
+    : null;
   const entry = existing || { criterionKey };
 
-  if (criterion.type === "manual") {
+  if (criterion.type === "manual" && isPeriodic(criterion) && input.periodStart !== undefined) {
+    // Rate one period (week / fortnight / day) of the appraisal month.
+    const period = getExpectedPeriodsForMonth(criterion.frequency, doc.month).find((p) => p.startDate === input.periodStart);
+    if (!period) throw new AppraisalError(`That ${criterion.frequency} period isn't part of ${doc.month}`);
+    if (input.ratingKey !== null && input.ratingKey !== undefined && !(criterion.ratingOptions || []).some((o) => o.key === input.ratingKey)) {
+      throw new AppraisalError("Invalid rating option for this criterion");
+    }
+    const list = (entry.periodRatings || []).filter((r) => r.startDate !== period.startDate);
+    if (input.ratingKey) list.push({ startDate: period.startDate, endDate: period.endDate, label: period.label, ratingKey: input.ratingKey });
+    entry.periodRatings = list.sort((a, b) => a.startDate.localeCompare(b.startDate));
+  } else if (criterion.type === "manual") {
     if (input.ratingKey !== undefined) {
       if (input.ratingKey !== null && !(criterion.ratingOptions || []).some((o) => o.key === input.ratingKey)) {
         throw new AppraisalError("Invalid rating option for this criterion");
@@ -369,7 +383,7 @@ export const setEvaluation = async (doc, criterionKey, input, actor) => {
   doc.markModified("evaluations");
   await doc.save();
 
-  const after = { ratingKey: entry.ratingKey ?? null, overridePct: entry.overridePct ?? null, comment: entry.comment || "" };
+  const after = { ratingKey: entry.ratingKey ?? null, overridePct: entry.overridePct ?? null, comment: entry.comment || "", periodRatings: entry.periodRatings || [] };
   await audit({
     actor,
     action: criterion.type === "hybrid" && input.overridePct !== undefined ? "override_set" : "rating_set",

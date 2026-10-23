@@ -73,17 +73,12 @@ describe("performance evaluation periods", () => {
     assert.equal(prev.endDate, "2026-10-03");
   });
 
-  test("monthly criteria are marked once per week of the month", () => {
+  test("monthly period bounds span the whole calendar month", () => {
     const p = getPeriodBounds("monthly", "2026-09-16");
     assert.equal(p.frequency, "monthly");
-    assert.equal(p.startDate, "2026-09-14");
-    assert.equal(p.endDate, "2026-09-19");
-    assert.equal(p.month, "2026-09");
-    assert.equal(p.label, "Week 2 (2026-09-14 to 2026-09-19)");
-
-    const m = getMonthBounds("2026-09");
-    assert.equal(m.startDate, "2026-09-01");
-    assert.equal(m.endDate, "2026-09-30");
+    assert.equal(p.startDate, "2026-09-01");
+    assert.equal(p.endDate, "2026-09-30");
+    assert.deepEqual(getMonthBounds("2026-09"), p);
   });
 
   test("expected periods for month", () => {
@@ -117,10 +112,9 @@ describe("performance evaluation periods", () => {
     }
 
     const monthlyPeriods = getExpectedPeriodsForMonth("monthly", "2026-10");
-    assert.equal(monthlyPeriods.length, 4); // one mark per week
-    assert.equal(monthlyPeriods[0].startDate, "2026-10-05");
-    assert.equal(monthlyPeriods[3].endDate, "2026-10-31");
-    assert.ok(monthlyPeriods.every((p) => p.frequency === "monthly" && p.month === "2026-10"));
+    assert.equal(monthlyPeriods.length, 1); // one mark per month
+    assert.equal(monthlyPeriods[0].startDate, "2026-10-01");
+    assert.equal(monthlyPeriods[0].endDate, "2026-10-31");
   });
 });
 

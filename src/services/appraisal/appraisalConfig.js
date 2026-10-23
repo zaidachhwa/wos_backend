@@ -88,6 +88,10 @@ export const buildConfigSnapshot = (criteria, settings) => ({
   settingsVersion: settings.version,
   capturedAt: new Date(),
   criteria: criteria.map((c) => ({
+    _id: String(c._id),
+    parentCriterion: c.parentCriterion ? String(c.parentCriterion) : null,
+    scoreFromSubCriteria: c.scoreFromSubCriteria !== false,
+    frequency: c.frequency || "monthly",
     key: c.key,
     name: c.name,
     description: c.description,

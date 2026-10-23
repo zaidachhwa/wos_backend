@@ -42,6 +42,10 @@ export const sanitizeAppraisal = (appraisal, user) => {
     performancePct: e.performancePct,
     score: e.score,
     maxScore: e.maxScore,
+    parentKey: e.parentKey || null,
+    hasSubCriteria: Boolean(e.hasSubCriteria),
+    frequency: e.frequency || null,
+    periods: e.periods,
   }));
   if (obj.metricsSnapshot) {
     const m = obj.metricsSnapshot;

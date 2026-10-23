@@ -39,7 +39,7 @@ export const buildAppraisalEmail = (appraisal, employeeName) => {
   const rows = (appraisal.entries || [])
     .map(
       (e) =>
-        `<tr><td style="padding:4px 12px 4px 0;">${esc(e.name)}</td><td style="padding:4px 0;text-align:right;">${roundDisplay(e.score)} / ${roundDisplay(e.maxScore)}${e.ratingLabel ? ` (${esc(e.ratingLabel)})` : ""}</td></tr>`
+        `<tr><td style="padding:4px 12px 4px ${e.parentKey ? "16px" : "0"};">${e.parentKey ? "↳ " : ""}${esc(e.name)}</td><td style="padding:4px 0;text-align:right;">${roundDisplay(e.score)} / ${roundDisplay(e.maxScore)}${e.ratingLabel ? ` (${esc(e.ratingLabel)})` : ""}</td></tr>`
     )
     .join("");
 

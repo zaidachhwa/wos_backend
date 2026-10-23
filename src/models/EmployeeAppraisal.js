@@ -12,6 +12,16 @@ const evaluationSchema = new mongoose.Schema(
     overridePct: { type: Number, default: null, min: 0, max: 100 },
     overrideReason: { type: String, default: "" },
     comment: { type: String, default: "" },
+    // Daily/weekly/biweekly manual criteria: one rating per period of the month.
+    periodRatings: [
+      {
+        _id: false,
+        startDate: { type: String, required: true },
+        endDate: { type: String, required: true },
+        label: { type: String, default: "" },
+        ratingKey: { type: String, required: true },
+      },
+    ],
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     updatedAt: { type: Date, default: null },
   },
@@ -45,6 +55,14 @@ const entrySchema = new mongoose.Schema(
     noData: { type: Boolean, default: false },
     source: { type: String, default: "" },
     steps: [{ type: String }],
+    // Sub-criteria entries name their main criterion; they roll up into it
+    // and never count towards the total on their own.
+    parentKey: { type: String, default: null },
+    // A main criterion scored as the sum of its sub-criteria.
+    hasSubCriteria: { type: Boolean, default: false },
+    // Periodic manual criteria: frequency and each period's rating.
+    frequency: { type: String, default: null },
+    periods: { type: mongoose.Schema.Types.Mixed, default: undefined },
   },
   { _id: false }
 );

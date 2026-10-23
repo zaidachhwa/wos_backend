@@ -347,3 +347,102 @@ describe("precision", () => {
     assert.equal(roundDisplay(86.665), 86.67);
   });
 });
+
+describe("sub-criteria roll up into their main criterion", () => {
+  const rating = (key, name, weightage, extra = {}) => ({
+    key,
+    name,
+    type: "manual",
+    group: "hr_evaluation",
+    weightage,
+    scoringMethod: "rating",
+    ratingOptions: [
+      { key: "poor", label: "Poor", pct: 25 },
+      { key: "average", label: "Average", pct: 50 },
+      { key: "good", label: "Good", pct: 100 },
+    ],
+    ...extra,
+  });
+  const main = rating("discipline", "Discipline", 15, { _id: "m1", scoreFromSubCriteria: true, ratingOptions: [] });
+  const subs = ["leave", "late", "delegation", "mail"].map((k) => rating(k, k, 25, { _id: `s_${k}`, parentCriterion: "m1" }));
+  const other = rating("prof", "Professionalism", 85);
+
+  test("main score is the sum of its sub-criteria, each a share of the main's points", () => {
+    const evaluations = [
+      { criterionKey: "leave", ratingKey: "poor" },
+      { criterionKey: "late", ratingKey: "good" },
+      { criterionKey: "delegation", ratingKey: "good" },
+      { criterionKey: "mail", ratingKey: "good" },
+      { criterionKey: "prof", ratingKey: "good" },
+    ];
+    const r = computeAppraisal({ criteria: [main, ...subs, other], settings: DEFAULT_SETTINGS, metrics: {}, evaluations });
+    const mainEntry = r.entries.find((e) => e.criterionKey === "discipline");
+    const subEntries = r.entries.filter((e) => e.parentKey === "discipline");
+    assert.equal(subEntries.length, 4);
+    assert.ok(subEntries.every((e) => e.maxScore === 3.75));
+    assert.equal(roundDisplay(subEntries[0].score), 0.94);
+    assert.equal(mainEntry.maxScore, 15);
+    assert.equal(roundDisplay(mainEntry.score), roundDisplay(subEntries.reduce((s, e) => s + e.score, 0)));
+    // total counts the main criterion once, never the sub-criteria on top
+    assert.equal(roundDisplay(r.totalScore), roundDisplay(mainEntry.score + 85));
+    assert.ok(r.complete);
+  });
+
+  test("sub weightages entered as points of the main share the same way", () => {
+    const pointSubs = subs.map((s) => ({ ...s, weightage: 3.75 }));
+    const r = computeAppraisal({ criteria: [main, ...pointSubs, other], settings: DEFAULT_SETTINGS, metrics: {}, evaluations: [] });
+    assert.ok(r.entries.filter((e) => e.parentKey).every((e) => e.maxScore === 3.75));
+    assert.deepEqual(r.missingInputs, ["leave", "late", "delegation", "mail", "Professionalism"]);
+  });
+});
+
+describe("weekly manual criteria are rated once per week", () => {
+  const weekly = {
+    key: "punctuality",
+    name: "Punctuality",
+    type: "manual",
+    frequency: "weekly",
+    weightage: 100,
+    scoringMethod: "rating",
+    ratingOptions: [
+      { key: "poor", label: "Poor", pct: 25 },
+      { key: "good", label: "Good", pct: 100 },
+    ],
+  };
+
+  test("score is the average of the rated weeks; complete once every week is rated", () => {
+    // October 2026 weeks start 5, 12, 19, 26
+    const partial = computeAppraisal({
+      criteria: [weekly],
+      settings: DEFAULT_SETTINGS,
+      metrics: {},
+      month: "2026-10",
+      evaluations: [{ criterionKey: "punctuality", periodRatings: [
+        { startDate: "2026-10-05", ratingKey: "good" },
+        { startDate: "2026-10-12", ratingKey: "poor" },
+      ] }],
+    });
+    const e = partial.entries[0];
+    assert.equal(e.periods.length, 4);
+    assert.equal(e.performancePct, 62.5);
+    assert.equal(e.score, 62.5);
+    assert.equal(e.complete, false);
+
+    const full = computeAppraisal({
+      criteria: [weekly],
+      settings: DEFAULT_SETTINGS,
+      metrics: {},
+      month: "2026-10",
+      evaluations: [{ criterionKey: "punctuality", periodRatings: ["05", "12", "19", "26"].map((d) => ({ startDate: `2026-10-${d}`, ratingKey: "good" })) }],
+    });
+    assert.equal(full.entries[0].score, 100);
+    assert.ok(full.complete);
+  });
+
+  test("monthly manual criteria keep a single rating", () => {
+    const monthly = { ...weekly, frequency: "monthly" };
+    const r = computeAppraisal({ criteria: [monthly], settings: DEFAULT_SETTINGS, metrics: {}, month: "2026-10", evaluations: [{ criterionKey: "punctuality", ratingKey: "poor" }] });
+    assert.equal(r.entries[0].periods, undefined);
+    assert.equal(r.entries[0].score, 25);
+  });
+});
