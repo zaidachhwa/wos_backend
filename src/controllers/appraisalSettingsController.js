@@ -3,8 +3,6 @@ import mongoose from "mongoose";
 import AppraisalCriterion from "../models/AppraisalCriterion.js";
 import AppraisalSettings from "../models/AppraisalSettings.js";
 import Department from "../models/Department.js";
-import Role from "../models/Role.js";
-import User from "../models/User.js";
 import { BUG_STATUSES, CRITERION_TYPES, METRICS, SCORING_METHODS } from "../constants/appraisal.constants.js";
 import { ROLES } from "../constants/roles.constants.js";
 import { getAllCriteria, getSettings, weightageStatus } from "../services/appraisal/appraisalConfig.js";
@@ -84,8 +82,9 @@ const normalizeCriterion = (body, existing = {}) => {
   c.parentCriterion = body.parentCriterion ? String(body.parentCriterion) : null;
   c.frequency = body.frequency || existing.frequency || "monthly";
   c.scoreFromSubCriteria = body.scoreFromSubCriteria !== undefined ? Boolean(body.scoreFromSubCriteria) : (existing.scoreFromSubCriteria ?? true);
+  // Positions are the base permission roles (ROLES); anything else is dropped.
   c.positions = Array.isArray(body.positions)
-    ? [...new Set(body.positions.map((p) => String(p).trim()).filter(Boolean))]
+    ? [...new Set(body.positions.map((p) => String(p).trim().toLowerCase()).filter((p) => ROLES.includes(p)))]
     : existing.positions || [];
 
   if (c.type === "manual") {
@@ -411,23 +410,11 @@ export const updateSettings = async (req, res) => {
   }
 };
 
+// Criteria target positions by base permission level, so the choice is the
+// fixed ROLES list rather than free-text designations.
 export const listPositions = async (req, res) => {
   try {
-    const { department } = req.query;
-    const filter = { isActive: true, designation: { $nin: ["", null] } };
-    if (department && mongoose.isValidObjectId(department)) filter.department = department;
-    const designations = await User.find(filter).distinct("designation");
-
-    // Also include roles defined in Role collection
-    const roleFilter = { isActive: true };
-    if (department && mongoose.isValidObjectId(department)) {
-      roleFilter.$or = [{ department }, { department: null }];
-    }
-    const roles = await Role.find(roleFilter).select("name").lean();
-    const roleNames = roles.map((r) => r.name);
-
-    const positions = [...designations, ...roleNames].map((d) => String(d).trim()).filter(Boolean).sort();
-    return res.json({ success: true, message: "Positions fetched", data: { positions: [...new Set(positions)] } });
+    return res.json({ success: true, message: "Positions fetched", data: { positions: ROLES } });
   } catch (error) {
     return serverError(res, error);
   }

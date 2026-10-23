@@ -361,12 +361,17 @@ export const appliesToDepartment = (criterion, departmentId) => {
   return Boolean(departmentId) && list.some((d) => String(d?._id || d) === String(departmentId));
 };
 
+// A criterion with no positions applies to everyone; otherwise to anyone whose
+// position matches. `position` may be a list — callers pass the employee's
+// base role plus their designation, so criteria saved before positions became
+// roles keep matching.
 export const appliesToPosition = (criterion, position) => {
   const list = criterion.positions || [];
   if (!list.length) return true;
-  if (!position) return false;
-  const posClean = String(position).trim().toLowerCase();
-  return list.some((p) => String(p).trim().toLowerCase() === posClean);
+  const mine = (Array.isArray(position) ? position : [position])
+    .filter(Boolean)
+    .map((p) => String(p).trim().toLowerCase());
+  return list.some((p) => mine.includes(String(p).trim().toLowerCase()));
 };
 
 export const appliesToDepartmentAndPosition = (criterion, departmentId, position) =>

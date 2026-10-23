@@ -29,22 +29,44 @@ describe("performance evaluation periods", () => {
     assert.equal(p.month, "2026-10");
   });
 
-  test("weekly period bounds start on Monday and end on Sunday", () => {
+  test("weekly period bounds run Monday to Saturday", () => {
     // 2026-10-17 is Saturday
     const p = getPeriodBounds("weekly", "2026-10-17");
     assert.equal(p.frequency, "weekly");
     assert.equal(p.startDate, "2026-10-12"); // Monday
-    assert.equal(p.endDate, "2026-10-18"); // Sunday
+    assert.equal(p.endDate, "2026-10-17"); // Saturday
+
+    // Sunday belongs to the week before it
+    const sun = getPeriodBounds("weekly", "2026-10-18");
+    assert.equal(sun.startDate, "2026-10-12");
+    assert.equal(sun.endDate, "2026-10-17");
   });
 
-  test("biweekly period bounds split month at day 14/15", () => {
+  test("weeks belong to the month their Monday falls in", () => {
+    // 2026-10-01 is Thursday — its week started Monday 2026-09-28
+    const p = getPeriodBounds("weekly", "2026-10-01");
+    assert.equal(p.startDate, "2026-09-28");
+    assert.equal(p.endDate, "2026-10-03");
+    assert.equal(p.month, "2026-09");
+  });
+
+  test("biweekly periods run 1st Monday to 2nd Saturday, then 3rd Monday onwards", () => {
+    // October 2026 Mondays: 5, 12, 19, 26
     const p1 = getPeriodBounds("biweekly", "2026-10-10");
-    assert.equal(p1.startDate, "2026-10-01");
-    assert.equal(p1.endDate, "2026-10-14");
+    assert.equal(p1.startDate, "2026-10-05");
+    assert.equal(p1.endDate, "2026-10-17");
+    assert.equal(p1.month, "2026-10");
 
     const p2 = getPeriodBounds("biweekly", "2026-10-20");
-    assert.equal(p2.startDate, "2026-10-15");
+    assert.equal(p2.startDate, "2026-10-19");
     assert.equal(p2.endDate, "2026-10-31");
+
+    // 2026-10-02 (Friday) is in the week of Monday 2026-09-28 — September's 5th
+    // week, which joins September's second period (3rd Monday 2026-09-21).
+    const prev = getPeriodBounds("biweekly", "2026-10-02");
+    assert.equal(prev.month, "2026-09");
+    assert.equal(prev.startDate, "2026-09-21");
+    assert.equal(prev.endDate, "2026-10-03");
   });
 
   test("monthly period bounds span the whole calendar month", () => {
@@ -57,13 +79,36 @@ describe("performance evaluation periods", () => {
     const dailyPeriods = getExpectedPeriodsForMonth("daily", "2026-10");
     assert.equal(dailyPeriods.length, 31);
 
+    const weeklyPeriods = getExpectedPeriodsForMonth("weekly", "2026-10");
+    assert.deepEqual(
+      weeklyPeriods.map((p) => [p.startDate, p.endDate]),
+      [
+        ["2026-10-05", "2026-10-10"],
+        ["2026-10-12", "2026-10-17"],
+        ["2026-10-19", "2026-10-24"],
+        ["2026-10-26", "2026-10-31"],
+      ]
+    );
+
     const biweeklyPeriods = getExpectedPeriodsForMonth("biweekly", "2026-10");
     assert.equal(biweeklyPeriods.length, 2);
-    assert.equal(biweeklyPeriods[0].startDate, "2026-10-01");
+    assert.equal(biweeklyPeriods[0].startDate, "2026-10-05");
+    assert.equal(biweeklyPeriods[0].endDate, "2026-10-17");
+    assert.equal(biweeklyPeriods[1].startDate, "2026-10-19");
     assert.equal(biweeklyPeriods[1].endDate, "2026-10-31");
+
+    // Every recorded period lands on an expected period of its own month
+    for (const d of ["2026-11-02", "2026-11-14", "2026-11-16", "2026-11-30", "2026-12-05"]) {
+      const b = getPeriodBounds("biweekly", d);
+      assert.ok(getExpectedPeriodsForMonth("biweekly", b.month).some((p) => p.startDate === b.startDate), d);
+      const w = getPeriodBounds("weekly", d);
+      assert.ok(getExpectedPeriodsForMonth("weekly", w.month).some((p) => p.startDate === w.startDate), d);
+    }
 
     const monthlyPeriods = getExpectedPeriodsForMonth("monthly", "2026-10");
     assert.equal(monthlyPeriods.length, 1);
+    assert.equal(monthlyPeriods[0].startDate, "2026-10-01");
+    assert.equal(monthlyPeriods[0].endDate, "2026-10-31");
   });
 });
 
@@ -87,6 +132,14 @@ describe("position and sub-criteria criteria matching", () => {
     assert.ok(appliesToDepartmentAndPosition(criterion, "dept123", "developer"));
     assert.ok(!appliesToDepartmentAndPosition(criterion, "dept999", "developer"));
     assert.ok(!appliesToDepartmentAndPosition(criterion, "dept123", "Team Lead"));
+  });
+
+  test("role positions match the employee's base role or designation", () => {
+    const criterion = { positions: ["qa", "sublead"] };
+    assert.ok(appliesToPosition(criterion, ["qa", "Senior Tester"]));
+    assert.ok(appliesToPosition(criterion, ["member", "sublead"])); // legacy designation match
+    assert.ok(!appliesToPosition(criterion, ["member", "Developer"]));
+    assert.ok(!appliesToPosition(criterion, [null, ""]));
   });
 
   test("weightage validation isolates sub-criteria from top-level criteria", () => {

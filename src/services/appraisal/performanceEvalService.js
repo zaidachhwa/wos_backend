@@ -34,8 +34,8 @@ export const recordEvaluation = async ({ employeeId, criterionId, date, rating, 
   }
 
   // Validate department & position assignment
-  if (!appliesToDepartmentAndPosition(criterion, targetUser.department, targetUser.designation)) {
-    throw new Error(`This criterion does not apply to the employee's department/position (${targetUser.designation || "No position"})`);
+  if (!appliesToDepartmentAndPosition(criterion, targetUser.department, [targetUser.role, targetUser.designation])) {
+    throw new Error(`This criterion does not apply to the employee's department/position (${targetUser.role}${targetUser.designation ? `, ${targetUser.designation}` : ""})`);
   }
 
   const validRatings = ["poor", "average", "good"];
@@ -157,7 +157,11 @@ export const listEvaluations = async ({
   if (department || position) {
     const userQuery = { isActive: true };
     if (department) userQuery.department = department;
-    if (position) userQuery.designation = new RegExp(`^${position.trim()}$`, "i");
+    if (position) {
+      const pos = position.trim();
+      const re = new RegExp(`^${pos.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i");
+      userQuery.$or = [{ role: pos.toLowerCase() }, { designation: re }];
+    }
     const matchingUserIds = await User.find(userQuery).distinct("_id");
     filter.employee = filter.employee ? { $in: matchingUserIds.filter((id) => String(id) === String(filter.employee)) } : { $in: matchingUserIds };
   }
@@ -190,7 +194,7 @@ export const calculateMonthlyPerformance = async ({ employeeId, month }) => {
 
   // Filter criteria applicable to employee's department and designation
   const applicableCriteria = allActiveCriteria
-    .filter((c) => appliesToDepartmentAndPosition(c, employee.department?._id, employee.designation))
+    .filter((c) => appliesToDepartmentAndPosition(c, employee.department?._id, [employee.role, employee.designation]))
     .map((c) => ({ ...c, effectiveWeight: effectiveWeightage(c, employee.department?._id) }));
 
   // Separate top-level criteria and sub-criteria
