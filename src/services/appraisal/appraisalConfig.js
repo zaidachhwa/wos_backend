@@ -18,7 +18,18 @@ export const ensureAppraisalConfig = async () => {
       )
     );
   }
-  await AppraisalSettings.updateOne({}, { $setOnInsert: { ...DEFAULT_SETTINGS, version: 1 } }, { upsert: true });
+
+  const existing = await AppraisalSettings.findOne().lean();
+  if (!existing) {
+    await AppraisalSettings.updateOne({}, { $setOnInsert: { ...DEFAULT_SETTINGS, version: 1 } }, { upsert: true });
+  } else {
+    const needsDefaultRoles = !Array.isArray(existing.appraisedRoles) || !existing.appraisedRoles.length || !DEFAULT_SETTINGS.appraisedRoles.every((role) => existing.appraisedRoles.includes(role));
+    if (needsDefaultRoles) {
+      const mergedRoles = Array.from(new Set([...(DEFAULT_SETTINGS.appraisedRoles || []), ...(existing.appraisedRoles || [])]));
+      await AppraisalSettings.updateOne({ _id: existing._id }, { $set: { appraisedRoles: mergedRoles } });
+    }
+  }
+
   await upgradeLegacyClassifications();
 };
 

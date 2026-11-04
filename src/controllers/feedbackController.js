@@ -20,6 +20,14 @@ export const FEEDBACK_VIEWERS = [
   "head_of_technical_operations",
 ];
 export const BONUS_REQUEST_VIEWERS = ["admin", "hr", "director"];
+export const TEAM_MEMBER_FEEDBACK_POST_ROLES = [
+  "manager",
+  "subadmin",
+  "sublead",
+  "member",
+  "qa",
+  "technical_coordinator",
+];
 
 const saturdayInIst = () => istClock(new Date()).dayOfWeek === 6;
 
@@ -30,7 +38,7 @@ const saturdayInIst = () => istClock(new Date()).dayOfWeek === 6;
 export const submitFeedback = async (req, res) => {
   try {
     const userRole = req.user?.role;
-    const restrictedMemberRole = ["member", "qa"].includes(userRole);
+    const restrictedMemberRole = TEAM_MEMBER_FEEDBACK_POST_ROLES.includes(userRole);
     if (restrictedMemberRole && !saturdayInIst()) {
       return fail(
         res,

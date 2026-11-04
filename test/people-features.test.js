@@ -145,6 +145,19 @@ describe("final score: (criteria + director 20) → 100, then + bonus", () => {
   });
 });
 
+describe("appraisal roster visibility", () => {
+  test("team and support roles stay in the default appraisal roster", async () => {
+    const { default: AppraisalSettings } =
+      await import("../src/models/AppraisalSettings.js");
+    await ensureAppraisalConfig();
+    const settings = await AppraisalSettings.findOne().lean();
+    assert.ok(settings.appraisedRoles.includes("member"));
+    assert.ok(settings.appraisedRoles.includes("subadmin"));
+    assert.ok(settings.appraisedRoles.includes("technical_coordinator"));
+    assert.ok(settings.appraisedRoles.includes("qa"));
+  });
+});
+
 describe("rating + increment on the appraisal", () => {
   test("a member gets the employee rate; a team lead and a project manager get the leader rate", async () => {
     const draft = async (who) => {

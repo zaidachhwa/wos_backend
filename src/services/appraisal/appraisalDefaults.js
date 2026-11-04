@@ -188,6 +188,6 @@ export const DEFAULT_SETTINGS = {
   classificationDecimals: 0,
   improvementRule: { thresholdPct: 60, maxItems: 3 },
   scoringScale: { poor: 25, average: 50, good: 100 },
-  appraisedRoles: ["manager", "sublead", "member", "qa"],
+  appraisedRoles: ["manager", "subadmin", "sublead", "member", "qa", "technical_coordinator"],
   automation: { autoFinalizeMode: "complete", emailsEnabled: true, maxEmailAttempts: 3 },
 };
