@@ -12,7 +12,8 @@ import {
 } from "../controllers/feedbackController.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 
-// Anonymous feedback: anyone posts; only admin/HR read.
+// Anonymous feedback: team members can submit only on Saturdays in IST;
+// admin/HR/director read the inbox.
 export const feedbackRouter = Router();
 feedbackRouter.use(authenticate);
 feedbackRouter.post("/", submitFeedback);
@@ -30,9 +31,15 @@ bonusRequestRouter.get(
   authorize(...BONUS_REQUEST_VIEWERS),
   (req, res, next) => {
     if (req.user?.role === "head_of_technical_operations") {
-      return res.status(403).json({ success: false, message: "Head of Technical Operations cannot view special bonus requests of other employees" });
+      return res
+        .status(403)
+        .json({
+          success: false,
+          message:
+            "Head of Technical Operations cannot view special bonus requests of other employees",
+        });
     }
     next();
   },
-  listBonusRequests
+  listBonusRequests,
 );
