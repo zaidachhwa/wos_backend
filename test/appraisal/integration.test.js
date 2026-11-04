@@ -499,7 +499,10 @@ describe("department-specific criteria", () => {
 
     const good = await call(() => api.put("/appraisals/criteria/allocation", { items: alloc(["code_quality", "sla_adherence"]) }, as("hr")));
     assert.equal(good.status, 200, good.data?.message);
-    assert.ok(good.data.data.weightage.byDepartment.every((d) => d.valid));
+    // Every role is appraised, so department-less staff (admin/HR here) form a
+    // "No department" scope that only gets the all-department criteria.
+    const byDept = good.data.data.weightage.byDepartment;
+    assert.ok(byDept.filter((d) => d.departmentId).every((d) => d.valid), JSON.stringify(byDept));
   });
 
   test("each employee is scored only on their own department's criteria", async () => {
