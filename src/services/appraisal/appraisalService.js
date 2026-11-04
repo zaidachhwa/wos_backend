@@ -35,9 +35,12 @@ export class AppraisalError extends Error {
 const EMPLOYEE_FIELDS = "name email role designation department team isActive";
 export const DIRECTOR_INPUT_LABEL = "Director's assessment (out of 20)";
 
-export const appraisedUserFilter = (settings, extra = {}) => ({
+// With `month`, only employees who had joined by the end of that month
+// (IST). Accounts without a joining date always count.
+export const appraisedUserFilter = (settings, { month, ...extra } = {}) => ({
   isActive: true,
   role: { $in: settings.appraisedRoles || [] },
+  ...(month ? { $or: [{ joinedAt: null }, { joinedAt: { $lte: monthPeriod(month).endAt } }] } : {}),
   ...extra,
 });
 

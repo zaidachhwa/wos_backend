@@ -61,10 +61,14 @@ const loadAppraisal = async (id) => {
 // (finalized rows of people who have since left/changed role included).
 const loadMonthRoster = async (month, { now = new Date() } = {}) => {
   const settings = await getSettings();
-  if (!(await AppraisalPeriod.exists({ month, status: "closed" }))) {
-    const users = await User.find(appraisedUserFilter(settings)).select("department");
-    await ensureDrafts(users, month);
-  }
+  // A closed month still picks up employees who had joined by its end but
+  // were missed at close (account created later with a back-dated joining
+  // date, or role made appraisable afterwards) — HR fills in and finalizes
+  // those by hand. ensureDrafts never touches existing rows, so finalized
+  // appraisals are unaffected.
+  const closed = await AppraisalPeriod.exists({ month, status: "closed" });
+  const users = await User.find(appraisedUserFilter(settings, closed ? { month } : {})).select("department");
+  await ensureDrafts(users, month);
   const docs = await EmployeeAppraisal.find({ month });
   const stale = docs.filter((d) => d.status !== "finalized" && (!d.calculatedAt || now - d.calculatedAt > STALE_MS));
   if (stale.length) await recalculate(stale, { now, settings });

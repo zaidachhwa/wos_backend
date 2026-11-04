@@ -338,6 +338,18 @@ describe("duplicate prevention", () => {
     const [a, b] = await Promise.all([closeMonth(MONTH, { now }), closeMonth(MONTH, { now })]);
     assert.equal([a, b].filter((r) => r.skipped).length, 1);
   });
+
+  test("a closed month still lists employees who joined during it but were added later", async () => {
+    // Accounts created after the month closed, joining date set by HR.
+    const midMonth = await User.create({ name: "Late", email: "late@test.local", password: "x", role: "member", joinedAt: inMonth(10) });
+    const nextMonth = await User.create({ name: "Next", email: "next@test.local", password: "x", role: "member", joinedAt: new Date(PERIOD.endAt.getTime() + 86400000) });
+    const r = await call(() => api.get("/appraisals", { params: { month: MONTH }, ...as("hr") }));
+    assert.equal(r.status, 200, r.data?.message);
+    assert.equal(await EmployeeAppraisal.countDocuments({ user: midMonth._id, month: MONTH }), 1);
+    assert.equal(await EmployeeAppraisal.countDocuments({ user: nextMonth._id, month: MONTH }), 0);
+    await User.deleteMany({ _id: { $in: [midMonth._id, nextMonth._id] } });
+    await EmployeeAppraisal.deleteMany({ user: midMonth._id });
+  });
 });
 
 describe("dashboard, reports and team-lead access", () => {
