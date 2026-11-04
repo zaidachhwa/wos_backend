@@ -7,7 +7,7 @@ const severitySchema = new mongoose.Schema(
     penalty: { type: Number, required: true, min: 0 },
     isActive: { type: Boolean, default: true },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const clientChangeCategorySchema = new mongoose.Schema(
@@ -17,7 +17,7 @@ const clientChangeCategorySchema = new mongoose.Schema(
     // Only categories that are the employee's fault should count against them.
     countsAgainstEmployee: { type: Boolean, default: false },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const classificationSchema = new mongoose.Schema(
@@ -26,7 +26,11 @@ const classificationSchema = new mongoose.Schema(
     label: { type: String, required: true, trim: true },
     min: { type: Number, required: true },
     max: { type: Number, required: true },
-    tone: { type: String, enum: ["danger", "warning", "success", "info", "muted"], default: "muted" },
+    tone: {
+      type: String,
+      enum: ["danger", "warning", "success", "info", "muted"],
+      default: "muted",
+    },
     emailMessage: { type: String, default: "" },
     showImprovementAreas: { type: Boolean, default: false },
     // Salary increment this rating earns: one rate for members, one for the
@@ -34,7 +38,7 @@ const classificationSchema = new mongoose.Schema(
     employeeIncrementPct: { type: Number, default: 0, min: 0, max: 100 },
     leaderIncrementPct: { type: Number, default: 0, min: 0, max: 100 },
   },
-  { _id: false }
+  { _id: false },
 );
 
 // Singleton: org-wide appraisal configuration other than the criteria
@@ -47,7 +51,10 @@ const appraisalSettingsSchema = new mongoose.Schema(
     bugSeverities: { type: [severitySchema], default: [] },
     // Bug statuses that count toward the penalty. "reported" (a TL report
     // HR hasn't reviewed yet) and "rejected" don't count by default.
-    bugCountableStatuses: { type: [String], default: ["confirmed", "resolved"] },
+    bugCountableStatuses: {
+      type: [String],
+      default: ["confirmed", "resolved"],
+    },
     clientChangeCategories: { type: [clientChangeCategorySchema], default: [] },
     // Whether an isClientChange task nobody has categorized yet counts
     // against the employee. Default false: never assume it was their fault.
@@ -66,20 +73,42 @@ const appraisalSettingsSchema = new mongoose.Schema(
       average: { type: Number, default: 50, min: 0, max: 100 },
       good: { type: Number, default: 100, min: 0, max: 100 },
     },
-    // Roles that get a monthly appraisal (same default set the attendance
-    // sweep tracks — see services/attendanceSweep.js TRACKED_ROLES).
-    appraisedRoles: { type: [String], default: ["manager", "sublead", "member", "qa"] },
+    // Roles that get a monthly appraisal. "Anyone" means the roster should
+    // include every role in the org, not only the operational team-member set.
+    appraisedRoles: {
+      type: [String],
+      default: [
+        "admin",
+        "manager",
+        "subadmin",
+        "sublead",
+        "member",
+        "hr",
+        "qa",
+        "director",
+        "technical_coordinator",
+        "head_of_technical_operations",
+      ],
+    },
     automation: {
       // "complete" = at month close (1st, 00:01 IST) auto-finalize every
       // appraisal with all HR inputs/ratings present; "submitted" = only
       // those HR explicitly submitted; "off" = HR finalizes everything by hand.
-      autoFinalizeMode: { type: String, enum: ["complete", "submitted", "off"], default: "complete" },
+      autoFinalizeMode: {
+        type: String,
+        enum: ["complete", "submitted", "off"],
+        default: "complete",
+      },
       emailsEnabled: { type: Boolean, default: true },
       maxEmailAttempts: { type: Number, default: 3, min: 1, max: 10 },
     },
-    updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 export default mongoose.model("AppraisalSettings", appraisalSettingsSchema);

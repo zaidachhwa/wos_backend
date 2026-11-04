@@ -308,12 +308,16 @@ export const DEFAULT_SETTINGS = {
   improvementRule: { thresholdPct: 60, maxItems: 3 },
   scoringScale: { poor: 25, average: 50, good: 100 },
   appraisedRoles: [
+    "admin",
     "manager",
     "subadmin",
     "sublead",
     "member",
+    "hr",
     "qa",
+    "director",
     "technical_coordinator",
+    "head_of_technical_operations",
   ],
   automation: {
     autoFinalizeMode: "complete",
