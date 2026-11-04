@@ -38,7 +38,8 @@ const saturdayInIst = () => istClock(new Date()).dayOfWeek === 6;
 export const submitFeedback = async (req, res) => {
   try {
     const userRole = req.user?.role;
-    const restrictedMemberRole = TEAM_MEMBER_FEEDBACK_POST_ROLES.includes(userRole);
+    const restrictedMemberRole =
+      TEAM_MEMBER_FEEDBACK_POST_ROLES.includes(userRole);
     if (restrictedMemberRole && !saturdayInIst()) {
       return fail(
         res,
@@ -183,13 +184,11 @@ export const submitBonusRequest = async (req, res) => {
           link: "/bonus-requests",
         });
       }
-      return res
-        .status(201)
-        .json({
-          success: true,
-          message: "Bonus request submitted",
-          data: { request },
-        });
+      return res.status(201).json({
+        success: true,
+        message: "Bonus request submitted",
+        data: { request },
+      });
     } catch (error) {
       if (error.code === 11000)
         return fail(
