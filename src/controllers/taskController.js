@@ -7,7 +7,7 @@ import { recordActivity, notify } from "../utils/record.js";
 import { broadcast } from "../utils/io.js";
 import { canViewProject, visibilityFilter, idOf } from "./projectController.js";
 import { paginationParams, paginationMeta } from "../utils/pagination.js";
-import { validateTimeSlot } from "../utils/taskDates.js";
+import { validateTimeSlot, isTaskOverdue, combineDeadlineAndTime, endOfDayLocal } from "../utils/taskDates.js";
 import { maxBonusFor } from "../utils/points.js";
 import { getPenalties, getBugReporterBonus } from "../utils/pointsConfig.js";
 import { computeStatusDurations } from "../utils/statusDurations.js";
@@ -135,8 +135,18 @@ export const createTask = async (req, res) => {
     // The old member "propose → approve" path is gone (members can't create);
     // approve/reject below still handles any proposals already pending.
     const isMember = false;
+    const isCompleted = (isMember ? "todo" : status) === "completed";
+    let completedAt = null;
+    let completedOnTime = null;
+    if (isCompleted) {
+      completedAt = new Date();
+      const cutoff = endTime ? combineDeadlineAndTime(deadline, endTime) : (deadline ? endOfDayLocal(deadline) : null);
+      completedOnTime = !cutoff || completedAt <= cutoff;
+    }
 
     const task = await Task.create({
+      completedAt,
+      completedOnTime,
       project: project._id,
       modules: modules || [],
       title,
@@ -550,6 +560,16 @@ export const updateTask = async (req, res) => {
     const prevAssignees = task.assignees.map((a) => String(a));
     const prevStatus = task.status;
     const prevBonusPoints = task.bonusPoints;
+    const prevDeadline = task.deadline ? new Date(task.deadline) : null;
+    const prevEndTime = task.endTime;
+    const prevCutoff = prevDeadline
+      ? (prevEndTime ? combineDeadlineAndTime(prevDeadline, prevEndTime) : endOfDayLocal(prevDeadline))
+      : null;
+    const now = new Date();
+    const wasOverdue =
+      task.overduePenaltyApplied ||
+      (prevCutoff ? prevCutoff < now : false) ||
+      task.completedOnTime === false;
 
     for (const key of allowedFields) {
       if (key in req.body) task[key] = req.body[key];
@@ -564,6 +584,58 @@ export const updateTask = async (req, res) => {
       return res
         .status(400)
         .json({ success: false, message: `bonusPoints cannot exceed ${maxBonusFor(task.priority)} for this priority` });
+    }
+
+    const newCutoff = task.deadline
+      ? (task.endTime ? combineDeadlineAndTime(task.deadline, task.endTime) : endOfDayLocal(task.deadline))
+      : null;
+
+    const deadlineIncreased = Boolean(
+      (prevDeadline && task.deadline && new Date(task.deadline) > prevDeadline) ||
+      (prevCutoff && newCutoff && newCutoff > prevCutoff)
+    );
+
+    // Track completion timestamp and on-time status on normal completion
+    if (task.status === "completed") {
+      if (!task.completedAt) {
+        const completionActivity = await Activity.findOne({
+          entityType: "task",
+          entityId: task._id,
+          "meta.statusTo": "completed",
+        }).sort("-createdAt");
+        task.completedAt = completionActivity ? completionActivity.createdAt : now;
+      }
+      if (task.completedOnTime === null || task.completedOnTime === undefined) {
+        task.completedOnTime = !newCutoff || task.completedAt <= newCutoff;
+      }
+    } else if (prevStatus === "completed") {
+      task.completedAt = null;
+      task.completedOnTime = null;
+    }
+
+    // Admin deadline adjustment:
+    // If deadline is increased and task was already overdue:
+    // 1. If completed: change to completed on time (if completed on or before the new deadline).
+    // 2. If not completed: change to in_progress until the new deadline arrives.
+    if (req.user.role === "admin" && deadlineIncreased && wasOverdue) {
+      task.overduePenaltyApplied = false;
+      await Activity.deleteMany({
+        entityType: "task",
+        entityId: task._id,
+        action: "overdue_penalized",
+      });
+
+      if (task.status === "completed") {
+        if (!newCutoff || (task.completedAt && task.completedAt <= newCutoff) || (!task.completedAt && now <= newCutoff)) {
+          task.completedOnTime = true;
+        }
+      } else {
+        if (!newCutoff || newCutoff >= now) {
+          task.status = "in_progress";
+          task.completedAt = null;
+          task.completedOnTime = null;
+        }
+      }
     }
 
     await task.save();
@@ -606,6 +678,27 @@ export const updateTask = async (req, res) => {
           user: userId,
           type: "status_changed",
           title: `Task "${task.title}" is now ${task.status}`,
+          link: `/tasks/${task._id}`,
+        });
+      }
+    }
+
+    // Notify assignees when an admin extends the deadline (they should know).
+    if (
+      req.user.role === "admin" &&
+      "deadline" in req.body &&
+      prevDeadline &&
+      task.deadline &&
+      new Date(task.deadline) > prevDeadline
+    ) {
+      const newDeadlineStr = new Date(task.deadline).toLocaleDateString("en-IN", {
+        day: "2-digit", month: "short", year: "numeric",
+      });
+      for (const userId of task.assignees) {
+        notify({
+          user: userId,
+          type: "task_updated",
+          title: `Deadline extended to ${newDeadlineStr} for "${task.title}"`,
           link: `/tasks/${task._id}`,
         });
       }

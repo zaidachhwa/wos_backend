@@ -111,7 +111,7 @@ export const getLeaderboard = async (req, res) => {
 
     const taskIds = [...latestByTask.keys()];
     const tasks = await Task.find({ _id: { $in: taskIds } }).select(
-      "title priority assignees bonusPoints deadline endTime project"
+      "title priority assignees bonusPoints deadline endTime project completedOnTime"
     );
     const taskById = new Map(tasks.map((t) => [String(t._id), t]));
 

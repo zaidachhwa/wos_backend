@@ -79,7 +79,7 @@ export const collectMetrics = async ({ userIds, month, settings, hrInputsByUser 
       { deadline: { $lt: monthStartUtc }, status: { $ne: "completed" } },
     ],
   })
-    .select("title project assignees status deadline endTime createdAt isClientChange clientChangeCategory type")
+    .select("title project assignees status deadline endTime createdAt isClientChange clientChangeCategory type completedOnTime")
     .lean();
 
   const completedAt = await completionTimesAsOf(tasks, asOf);
@@ -122,8 +122,8 @@ export const collectMetrics = async ({ userIds, month, settings, hrInputsByUser 
 
     const cutoff = deadlineCutoff(task);
     const completed = Boolean(doneAt);
-    const onTime = completed && (!cutoff || doneAt <= cutoff);
-    const late = completed && cutoff && doneAt > cutoff;
+    const onTime = completed && (task.completedOnTime === true || (!cutoff || doneAt <= cutoff));
+    const late = completed && !onTime;
     const overdue = !completed && cutoff && cutoff < asOf && task.status !== "client_review";
     const state = completed ? (onTime ? "completed_on_time" : "completed_late") : overdue ? "overdue" : "pending";
 

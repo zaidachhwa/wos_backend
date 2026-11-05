@@ -74,6 +74,10 @@ const taskSchema = new mongoose.Schema(
     // Guards the one-time overdue-penalty sweep (services/overdueSweep.js)
     // from double-deducting the same task.
     overduePenaltyApplied: { type: Boolean, default: false },
+    // Timestamp when task was completed
+    completedAt: { type: Date, default: null },
+    // Whether task was completed on or before its deadline cutoff
+    completedOnTime: { type: Boolean, default: null },
   },
   { timestamps: true }
 );

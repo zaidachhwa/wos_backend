@@ -11,6 +11,7 @@ export const maxBonusFor = (priority) =>
   taskPointCeiling(priority) - Math.round(taskPointCeiling(priority) * AUTO_AWARD_RATIO);
 
 export const wasCompletedLate = (task, completedAt) => {
+  if (task.completedOnTime === true) return false;
   if (!task.deadline) return false;
   const cutoff = task.endTime ? combineDeadlineAndTime(task.deadline, task.endTime) : endOfDayLocal(task.deadline);
   return completedAt > cutoff;

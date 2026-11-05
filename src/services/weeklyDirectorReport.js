@@ -100,7 +100,7 @@ const buildDeptReport = async (deptId, { from, to, fromStr, toStr }) => {
 
   const weekTaskIds = [...latestByTask.keys()];
   const weekTasks = await Task.find({ _id: { $in: weekTaskIds } })
-    .select("priority assignees bonusPoints deadline endTime project")
+    .select("priority assignees bonusPoints deadline endTime project completedOnTime")
     .lean();
 
   const projectIds = [...new Set(weekTasks.map((t) => String(t.project)))];
